@@ -72,23 +72,3 @@ class ActiveAuction(Auction):
         self.price = d['highest_bid_amount']
         self.item = make_item(d['item_bytes'])
         self.starting_price = d['starting_bid']
-
-
-if __name__ == '__main__':
-    # uhhh why doesn't my item import work
-    d = {
-        'uuid': 'asdf',
-        'auctioneer': 'asdf',
-        'bin': True,
-        'end': 1620101495396,
-        'highest_bid_amount': 123123,
-        'item_bytes': (
-            'H4sIAAAAAAAAACWPwUrDQBRFb9JqkxEUN4K76U8oLpOmolCKtN3LSzOkY6cZybxA+0'
-            'X5j3yBXyS+4OrB4ZwLTwEpIqsARDFiWyU/Ea4Wvms4Upgw1ROkb7Yyr47qINavwqyy'
-            '4dvRJcV05VuTCJ1hPvTPH472RvPBBm2bIJEm/dUdTenPmj0eRBk7oSUxO6ODb+q55I'
-            '9D/5Q7Ciydzqlh08oZFdxrLVl+0duDbY5+bVh8NfQvQ+822WaZYLqmk8GtoP9EFzbs'
-            'oXC3PHNLGXNry45NSMb3cJNnu91q+Vm8bxdAjOuCTlQbGcUfet7RKAwBAAA='
-        ),
-        'starting_bid': 123
-    }
-    a = ActiveAuction(d)

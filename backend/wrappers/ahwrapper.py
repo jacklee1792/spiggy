@@ -2,9 +2,9 @@ import asyncio
 
 from typing import Callable, Any, List
 from aiohttp import ClientSession
+from datetime import datetime, timedelta
 
 from models.auction import ActiveAuction
-from models.user import User
 
 ACTIVE_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions'
 ENDED_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions_ended'
@@ -13,7 +13,7 @@ _active_auctions_last_update = None
 _ended_auctions_last_update = None
 _active_auctions_on_update_processes = []
 _ended_auctions_on_update_processes = []
-_check_active_auctions_batch_size = 10
+_check_active_auctions_batch_size = 5
 
 
 def on_active_auctions_update(func: Callable[[Any], Any]) -> None:
@@ -57,10 +57,10 @@ async def get_active_auctions_page(page: int) -> List[ActiveAuction]:
         async with session.get(url) as res:
             res = await res.json()
 
-            if not res['success'] or res['lastUpdated'] \
-                    != _active_auctions_last_update:
+            if not res['success']:
                 return []
 
+            print('ok')
             return [ActiveAuction(d) for d in res['auctions']]
 
 
@@ -70,6 +70,8 @@ async def check_active_auctions() -> None:
     active auctions and pass it to the functions which are listening for an
     update.
 
+    This process will wait
+
     :return: None.
     """
     global _active_auctions_last_update
@@ -78,22 +80,27 @@ async def check_active_auctions() -> None:
     async with ClientSession() as session:
         async with session.get(ACTIVE_AUCTIONS_ENDPOINT) as res:
             res = await res.json()
-            if _active_auctions_last_update != res['lastUpdated']:
-                _active_auctions_last_update = res['lastUpdated']
-                auctions = []
-                page = 1
-                while True:
-                    # Try to batch pages together
-                    coros = (get_active_auctions_page(page + i) for i in
-                             range(_check_active_auctions_batch_size))
-                    results = await asyncio.gather(*coros)
-                    if not results[0]:
-                        break
-                    for ext in results:
-                        auctions.extend(ext)
-                    page += _check_active_auctions_batch_size
-                for process in _active_auctions_on_update_processes:
-                    process(auctions)
+
+    # Was the update recent enough?
+    now = datetime.now()
+    update_time = datetime.fromtimestamp(res['lastUpdated'] / 1000)
+    dt = now - update_time
+
+    if dt < timedelta(seconds=15):
+        auctions = []
+        page = 1
+        while True:
+            # Try to batch pages together
+            coros = (get_active_auctions_page(page + i) for i in
+                     range(_check_active_auctions_batch_size))
+            results = await asyncio.gather(*coros)
+            if not results[0]:
+                break
+            for ext in results:
+                auctions.extend(ext)
+            page += _check_active_auctions_batch_size
+        for process in _active_auctions_on_update_processes:
+            process(auctions)
 
 
 if __name__ == '__main__':
@@ -141,7 +148,8 @@ if __name__ == '__main__':
         # Find more candidates
         for item_id, lst in mappings.items():
             lst.sort(key=lambda a: a.starting_price)
-            if len(lst) > 1 and lst[0].starting_price <= max_price:
+            # Make sure there's enough demand, and you can afford it
+            if len(lst) > 10 and lst[0].starting_price <= max_price:
                 gap = lst[1].starting_price - lst[0].starting_price
                 if gap >= gap_required:
                     good_auction = lst[0]
@@ -156,7 +164,7 @@ if __name__ == '__main__':
         while True:
             print('checking for new active auctions...')
             await check_active_auctions()
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
 
     # :D
     asyncio.run(repeatedly_check())
