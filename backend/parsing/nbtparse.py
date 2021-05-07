@@ -34,7 +34,6 @@ def deserialize(b64: str) -> NBTFile:
     :param b64: The raw base-64 representation of the item's metadata.
     :return: A NBTFile with the decoded metadata.
     """
-
     return NBTFile(fileobj=io.BytesIO(base64.b64decode(b64)))
 
 
