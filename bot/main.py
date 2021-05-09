@@ -2,29 +2,32 @@ import discord
 import logging
 import os
 import configparser
+import dotenv
 
 from discord.ext import commands
-from dotenv import load_dotenv
-
+from pathlib import Path
 
 def main():
+    # Forget about the Discord logging
     logging.getLogger('discord').setLevel(logging.ERROR)
+
+    # Add timestamp to logs
     logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
 
+    # Read config
+    config_folder = Path(__file__).parent.parent / 'config'
     config = configparser.ConfigParser()
-    config.read('../config/bot.ini')
+    config.read(config_folder / 'bot.ini')
 
-    logging_level = config['Spiggy']['logging_level']
-    logging.getLogger().setLevel(getattr(logging, logging_level))
-
-    command_prefix = config['Spiggy']['command_prefix']
+    command_prefix = config['bot']['command_prefix']
     bot = commands.Bot(command_prefix=command_prefix,
                        intents=discord.Intents.default())
 
-    bot.load_extension('cogs.auctionhouse')
-    load_dotenv(dotenv_path='../config/.env')
-    token = os.getenv('DISCORD_BOT_TOKEN')
+    bot.load_extension('cogs.meta')
+    bot.load_extension('cogs.ah')
+    dotenv.load_dotenv(dotenv_path=config_folder / '.env')
+    token = os.getenv('SPIGGY_BOT_TOKEN')
     bot.run(token)
 
 

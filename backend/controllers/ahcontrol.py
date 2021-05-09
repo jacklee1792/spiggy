@@ -1,8 +1,9 @@
 import asyncio
 import multiprocessing
 import itertools
+import inspect
 
-from typing import Callable, Any, List, Dict
+from typing import Callable, List, Dict, Union, Coroutine
 from aiohttp import ClientSession
 from datetime import datetime, timedelta
 
@@ -30,7 +31,7 @@ class AuctionHouseControl:
     auctions_last_fetch: datetime
     batch_size: int
     check_delay: int
-    observers: List[Callable]
+    observers: List[Union[Callable, Coroutine]]
 
     def __init__(self,
                  recency_lower_bound: int = 20,
@@ -100,9 +101,7 @@ class AuctionHouseControl:
 
         if lb <= datetime.now() - last_update <= ub:
             self.auctions_last_fetch = last_update
-            print(f'GO time is {self.auctions_last_fetch}')
         else:
-            print(f'too far apart, dt is {datetime.now() - last_update}')
             return
 
         # Get the active auctions
@@ -120,6 +119,7 @@ class AuctionHouseControl:
                 batch_end = batch_start + self.batch_size
                 ext = p.map(ActiveAuction, responses[batch_start:batch_end])
                 active_auctions.extend(ext)
+
                 # Batch is done, briefly return control to event loop
                 print(f'batch starting at {batch_start} done')
                 batch_start = batch_end
@@ -133,9 +133,14 @@ class AuctionHouseControl:
 
         # Notify the observers
         for func in self.observers:
-            func(active_auctions=active_auctions, ended_auctions=ended_auctions)
+            if inspect.iscoroutinefunction(func):
+                await func(active_auctions=active_auctions,
+                           ended_auctions=ended_auctions)
+            else:
+                func(active_auctions=active_auctions,
+                     ended_auctions=ended_auctions)
 
-    def add_observer(self, func: Callable) -> None:
+    def add_observer(self, func: Union[Callable, Coroutine]) -> None:
         """
         Add a callable which observes updates in the active/ended auction
         endpoints. When an update is detected, each observer will be called

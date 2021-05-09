@@ -69,6 +69,9 @@ class ActiveAuction(Auction):
         self.seller = User(d['auctioneer'])
         self.is_bin = 'bin' in d
         self.end_time = datetime.fromtimestamp(d['end'] / 1000, tz=timezone.utc)
-        self.price = d['highest_bid_amount']
+        if self.is_bin:
+            self.price = d['starting_bid']
+        else:
+            self.price = d['highest_bid_amount']
         self.item = make_item(d['item_bytes'])
         self.starting_price = d['starting_bid']
