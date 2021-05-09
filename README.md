@@ -7,7 +7,9 @@
 <div align="center">
     <img src="https://img.shields.io/tokei/lines/github/jacklee1792/spiggy" />
     <img src="https://img.shields.io/github/commit-activity/m/jacklee1792/spiggy" />
-    <img src="https://img.shields.io/codefactor/grade/github/jacklee1792/spiggy" />
+    <a href="https://www.codefactor.io/repository/github/jacklee1792/spiggy">
+        <img src="https://img.shields.io/codefactor/grade/github/jacklee1792/spiggy" />
+    </a>
 </div>
 
 ---
