@@ -1,5 +1,3 @@
-import asyncio
-
 from discord import TextChannel
 from discord.ext import commands, tasks
 from discord.ext.commands import Bot, Cog
@@ -42,7 +40,6 @@ class AuctionHouseCog(Cog):
             matches = matches[:5]
             for match in matches:
                 await ctx.send(f'{match.seller.username} {match.price}')
-
 
     @property
     def dump_channel(self) -> Optional[TextChannel]:

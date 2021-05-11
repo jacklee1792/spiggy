@@ -7,6 +7,7 @@ import dotenv
 from discord.ext import commands
 from pathlib import Path
 
+
 def main():
     # Forget about the Discord logging
     logging.getLogger('discord').setLevel(logging.ERROR)

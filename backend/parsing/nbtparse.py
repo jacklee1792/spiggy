@@ -2,10 +2,11 @@ import base64
 import io
 import json
 import re
-from typing import List, Tuple, Optional, Any, Dict
-from pathlib import Path
+import gzip
+import struct
 
-from nbt.nbt import NBTFile, TAG_Compound
+from typing import List, Tuple, Optional, Any, Dict, BinaryIO, Union
+from pathlib import Path
 
 _here = Path(__file__).parent
 
@@ -14,6 +15,157 @@ with open(_here/'exceptions/enchants.json') as f:
 
 with open(_here/'exceptions/reforges.json') as f:
     REFORGE_EXCEPTIONS = json.load(f)
+
+
+def _pop_byte(bytes_f: BinaryIO) -> int:
+    return int.from_bytes(bytes_f.read(1),
+                          byteorder='big', signed=True)
+
+
+def _pop_ushort(bytes_f: BinaryIO) -> int:
+    return int.from_bytes(bytes_f.read(2),
+                          byteorder='big', signed=False)
+
+
+def _pop_short(bytes_f: BinaryIO) -> int:
+    return int.from_bytes(bytes_f.read(2),
+                          byteorder='big', signed=True)
+
+
+def _pop_int(bytes_f: BinaryIO) -> int:
+    return int.from_bytes(bytes_f.read(4),
+                          byteorder='big', signed=True)
+
+
+def _pop_long(bytes_f: BinaryIO) -> int:
+    return int.from_bytes(bytes_f.read(8),
+                          byteorder='big', signed=True)
+
+
+def _pop_string(bytes_f: BinaryIO) -> str:
+    payload = _pop_ushort(bytes_f)
+    return bytes_f.read(payload).decode('utf-8')
+
+
+class NbtTag:
+    """
+    Class defining an NbtTag: a value with an intrinsic name.
+    """
+    name: str
+    value: Any
+
+    def __init__(self, name: str, value: Any):
+        """
+        Construct an NbtTag instance.
+
+        :param name: The name of the NbtTag.
+        :param value: The value of the NbtTag.
+        """
+        self.name = name
+        self.value = value
+
+    def __getitem__(self, key: Union[str, int]):
+        """
+        Call __getitem__ on the NbtTag's value instance variable.
+
+        :param key: The desired key.
+        :return: The value of the key in the value instance variable.
+        """
+        return self.value[key]
+
+
+def parse_byte(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, _pop_byte(bytes_f))
+
+
+def parse_short(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, _pop_short(bytes_f))
+
+
+def parse_int(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, _pop_int(bytes_f))
+
+
+def parse_long(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, _pop_long(bytes_f))
+
+
+def parse_float(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, struct.unpack('>f', bytes_f.read(4)))
+
+
+def parse_double(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, struct.unpack('>d', bytes_f.read(8)))
+
+
+def parse_byte_array(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    payload = _pop_int(bytes_f)
+    arr = [_pop_byte(bytes_f) for _ in range(payload)]
+    return NbtTag(name, arr)
+
+
+def parse_string(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    return NbtTag(name, _pop_string(bytes_f))
+
+
+def parse_list(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    content_type = _pop_byte(bytes_f)
+    payload = _pop_int(bytes_f)
+    ret = []
+    for _ in range(payload):
+        ret.append(PARSERS[content_type](bytes_f, read_name=False))
+    return NbtTag(name, ret)
+
+
+def parse_compound(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    tag_type = _pop_byte(bytes_f)
+    ret = {}
+    while tag_type != 0:
+        tag = PARSERS[tag_type](bytes_f)
+        ret[tag.name] = tag.value
+        tag_type = _pop_byte(bytes_f)
+    return NbtTag(name, ret)
+
+
+def parse_int_array(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    payload = _pop_int(bytes_f)
+    arr = [_pop_int(bytes_f) for _ in range(payload)]
+    return NbtTag(name, arr)
+
+
+def parse_long_array(bytes_f: BinaryIO, read_name: bool = True) -> NbtTag:
+    name = _pop_string(bytes_f) if read_name else ''
+    payload = _pop_int(bytes_f)
+    arr = [_pop_long(bytes_f) for _ in range(payload)]
+    return NbtTag(name, arr)
+
+
+PARSERS = [
+    None,
+    parse_byte,
+    parse_short,
+    parse_int,
+    parse_long,
+    parse_float,
+    parse_double,
+    parse_byte_array,
+    parse_string,
+    parse_list,
+    parse_compound,
+    parse_int_array,
+    parse_long_array
+]
 
 
 def _without_nbt_style(s: str) -> str:
@@ -27,33 +179,38 @@ def _without_nbt_style(s: str) -> str:
     return re.sub('§ka|§.', '', s).strip()
 
 
-def deserialize(b64: str) -> NBTFile:
+def deserialize(b64: str) -> NbtTag:
     """
-    Decode the base-64 encoding of an item's metadata.
+    Decode the gzipped base-64 encoding of an item's metadata.
 
-    :param b64: The raw base-64 representation of the item's metadata.
-    :return: A NBTFile with the decoded metadata.
+    :param b64: The gzipped base-64 item metadata.
+    :return: A NbtTag with the decoded metadata.
     """
-    return NBTFile(fileobj=io.BytesIO(base64.b64decode(b64)))
+    bytes_gz = base64.b64decode(b64)
+    bytes_f = io.BytesIO(gzip.decompress(bytes_gz))
+
+    # Pop the outer compound tag indicator
+    _pop_byte(bytes_f)
+    return parse_compound(bytes_f)
 
 
-def _get_extra_attrs(nbt: NBTFile) -> TAG_Compound:
+def _get_extra_attrs(nbt: NbtTag) -> Dict[str, Any]:
     """
     Helper method to get the 'ExtraAttributes' tag compound from an item
-    NBTFile. Useful for other extraction methods.
+    NbtTag. Useful for other extraction methods.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The 'ExtraAttributes' tag compound.
     """
     return nbt['i'][0]['tag']['ExtraAttributes']
 
 
-def _get_pet_attrs(nbt: NBTFile) -> Dict[str, Any]:
+def _get_pet_attrs(nbt: NbtTag) -> Dict[str, Any]:
     """
     Helper method to get the 'petInfo' tag and parse it into a dictionary.
     Returns an empty dictionary if no pet attributes are found.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: Dictionary containing the pet attributes of the item.
     """
     extra_attrs = _get_extra_attrs(nbt)
@@ -61,26 +218,26 @@ def _get_pet_attrs(nbt: NBTFile) -> Dict[str, Any]:
     return json.loads(as_str)
 
 
-def extract_api_id(nbt: NBTFile) -> str:
+def extract_api_id(nbt: NbtTag) -> str:
     """
-    Get the API ID of an item from its NBTFile.
+    Get the API ID of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The ID of the item, directly as it appears in the Skyblock API.
     """
     extra_attrs = _get_extra_attrs(nbt)
-    return extra_attrs['id'].value
+    return extra_attrs['id']
 
 
-def extract_generic_base_name(nbt: NBTFile) -> str:
+def extract_generic_base_name(nbt: NbtTag) -> str:
     """
-    Given the NBTFile corresponding to an item, return its generic base name.
+    Given the NbtTag corresponding to an item, return its generic base name.
 
     This corresponds to removing special symbols and reforges from the raw
     display name. Often, dropping the first word is enough to remove the
     reforge, but some exceptions apply and are specified in REFORGE_EXCEPTIONS.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The name of the item with extra symbols removed and reforge
     dropped, if applicable.
     """
@@ -95,22 +252,22 @@ def extract_generic_base_name(nbt: NBTFile) -> str:
     return REFORGE_EXCEPTIONS.get(name, general_case)
 
 
-def extract_generic_display_name(nbt: NBTFile) -> str:
+def extract_generic_display_name(nbt: NbtTag) -> str:
     """
-    Extract the raw display name of an item (with NBT styling) from its NBTFile.
+    Extract the raw display name of an item (with NBT styling) from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The api_name of the item, as a string.
     """
-    return _without_nbt_style(nbt['i'][0]['tag']['display']['Name'].value)
+    return _without_nbt_style(nbt['i'][0]['tag']['display']['Name'])
 
 
-def extract_identifiers(nbt: NBTFile) -> Tuple[str, str, str]:
+def extract_identifiers(nbt: NbtTag) -> Tuple[str, str, str]:
     """
     Extract the item ID, base name, and display name of an items from its
-    NBTFile.
+    NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: A tuple describing the item ID, base name, and display name of the
     item.
     """
@@ -151,21 +308,21 @@ def extract_identifiers(nbt: NBTFile) -> Tuple[str, str, str]:
     return item_id, base_name, display_name
 
 
-def extract_stack_size(nbt: NBTFile) -> int:
+def extract_stack_size(nbt: NbtTag) -> int:
     """
-    Get the number of items in an item stack from the associated NBTFile.
+    Get the number of items in an item stack from the associated NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The number of items in the item stack.
     """
-    return nbt['i'][0]['Count'].value
+    return nbt['i'][0]['Count']
 
 
-def extract_rarity(nbt: NBTFile) -> str:
+def extract_rarity(nbt: NbtTag) -> str:
     """
-    Get the rarity of an item from its NBTFile.
+    Get the rarity of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The rarity of the item.
     """
     last_lore_line = nbt['i'][0]['tag']['display']['Lore'][-1].value
@@ -173,177 +330,117 @@ def extract_rarity(nbt: NBTFile) -> str:
     return words[0]
 
 
-def extract_rune(nbt: NBTFile) -> Optional[Tuple[str, int]]:
+def extract_rune(nbt: NbtTag) -> Optional[Tuple[str, int]]:
     """
-    Get rune information of an item from its NBTFile.
+    Get rune information of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The rune of the item as a (rune name, level) pair, or None if no
     rune is associated with the item.
     """
     extra_attrs = _get_extra_attrs(nbt)
     if 'runes' in extra_attrs:
-        items = list(extra_attrs['runes'].items())
-        return items[0][0], items[0][1].value
+        return list(extra_attrs['runes'].items())[0]
     return None
 
 
-def extract_enchants(nbt: NBTFile) -> List[Tuple[str, int]]:
+def extract_enchants(nbt: NbtTag) -> List[Tuple[str, int]]:
     """
-    Get enchantment information of an item from its NBTFile.
+    Get enchantment information of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: A list of (enchantment, level) pairs describing the enchantments
     on the item
     """
     extra_attrs = _get_extra_attrs(nbt)
     enchantments = extra_attrs.get('enchantments', {}).items()
-    return [(ench, lvl.value) for ench, lvl in enchantments]
+    return [(ench, lvl) for ench, lvl in enchantments]
 
 
-def extract_is_recombobulated(nbt: NBTFile) -> bool:
+def extract_is_recombobulated(nbt: NbtTag) -> bool:
     """
-    Determine whether or not an item is recombobulated from its NBTFile.
+    Determine whether or not an item is recombobulated from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: Boolean, whether or not the item is recombobulated.
     """
     extra_attrs = _get_extra_attrs(nbt)
     return 'rarity_upgrades' in extra_attrs
 
 
-def extract_is_fragged(nbt: NBTFile) -> bool:
+def extract_is_fragged(nbt: NbtTag) -> bool:
     """
     Determine whether or not an item has a Bonzo or Livid fragment applied to
-    it from its NBTFile.
+    it from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: Boolean, whether or not the item is fragged.
     """
     return extract_api_id(nbt).startswith('STARRED_')
 
 
-def extract_hot_potato_count(nbt: NBTFile) -> int:
+def extract_hot_potato_count(nbt: NbtTag) -> int:
     """
     Determine the number of hot potato book upgrades on an item from its
-    NBTFile.
+    NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The number of hot potato book upgrades on the given item.
     """
     extra_attrs = _get_extra_attrs(nbt)
-    return getattr(extra_attrs.get('hot_potato_count'), 'value', 0)
+    return extra_attrs.get('hot_potato_count', 0)
 
 
-def extract_reforge(nbt: NBTFile) -> Optional[str]:
+def extract_reforge(nbt: NbtTag) -> Optional[str]:
     """
-    Get the reforge on an item from its NBTFile.
+    Get the reforge on an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The reforge of the item, or None if no reforge is present.
     """
     extra_attrs = _get_extra_attrs(nbt)
-    return getattr(extra_attrs.get('modifier'), 'value', None)
+    return extra_attrs.get('modifier')
 
 
-def extract_dungeon_stars(nbt: NBTFile) -> int:
+def extract_dungeon_stars(nbt: NbtTag) -> int:
     """
-    Get the number of dungeon stars on an item from its NBTFile.
+    Get the number of dungeon stars on an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The number of dungeon stars on the item.
     """
     extra_attrs = _get_extra_attrs(nbt)
-    return getattr(extra_attrs.get('dungeon_item_level'), 'value', 0)
+    return extra_attrs.get('dungeon_item_level', 0)
 
 
-def extract_pet_type(nbt: NBTFile) -> Optional[str]:
+def extract_pet_type(nbt: NbtTag) -> Optional[str]:
     """
-    Get the pet type of an item from its NBTFile.
+    Get the pet type of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The pet type of the item, if applicable.
     """
     pet_attrs = _get_pet_attrs(nbt)
     return pet_attrs.get('type')
 
 
-def extract_pet_exp(nbt: NBTFile) -> float:
+def extract_pet_exp(nbt: NbtTag) -> float:
     """
-    Get the pet experience of an item from its NBTFile.
+    Get the pet experience of an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The pet experience on the item.
     """
     pet_attrs = _get_pet_attrs(nbt)
     return pet_attrs.get('exp', 0)
 
 
-def extract_pet_candy_used(nbt: NBTFile) -> int:
+def extract_pet_candy_used(nbt: NbtTag) -> int:
     """
-    Get the number of pet candies used on an item from its NBTFile.
+    Get the number of pet candies used on an item from its NbtTag.
 
-    :param nbt: The NBTFile to be read.
+    :param nbt: The NbtTag to be read.
     :return: The number of pet candies on the item.
     """
     pet_attrs = _get_pet_attrs(nbt)
     return pet_attrs.get('candyUsed', 0)
-
-
-if __name__ == '__main__':
-
-    # Some tools for testing and debugging
-
-    def summarize(b64: str, verbose: bool = True) -> None:
-        item_nbt = deserialize(b64)
-
-        api_id = extract_api_id(item_nbt)
-        generic_display_name = extract_generic_display_name(item_nbt)
-        stack_size = extract_stack_size(item_nbt)
-        rarity = extract_rarity(item_nbt)
-        rune = extract_rune(item_nbt)
-        enchants = extract_enchants(item_nbt)
-        is_recombobulated = extract_is_recombobulated(item_nbt)
-        is_fragged = extract_is_fragged(item_nbt)
-        hot_potato_count = extract_hot_potato_count(item_nbt)
-        reforge = extract_reforge(item_nbt)
-        dungeon_stars = extract_dungeon_stars(item_nbt)
-        pet_type = extract_pet_type(item_nbt)
-        pet_exp = extract_pet_exp(item_nbt)
-        pet_candy_used = extract_pet_candy_used(item_nbt)
-        identifiers = extract_identifiers(item_nbt)
-
-        if verbose:
-            print(b64)
-            print(item_nbt.pretty_tree())
-
-        print('api_id:              ', api_id)
-        print('generic_display_name:', generic_display_name)
-        print('stack_size:          ', stack_size)
-        print('rarity:              ', rarity)
-        print('rune:                ', rune)
-        print('enchants:            ', enchants[:5])
-        print('is_recombobulated:   ', is_recombobulated)
-        print('is_fragged:          ', is_fragged)
-        print('hot_potato_count:    ', hot_potato_count)
-        print('reforge:             ', reforge)
-        print('dungeon_stars:       ', dungeon_stars)
-        print('pet_type:            ', pet_type)
-        print('pet_exp:             ', pet_exp)
-        print('pet_candy_used:      ', pet_candy_used)
-        print('identifier item_id:  ', identifiers[0])
-        print('identifier base_name:', identifiers[1])
-        print('identifier full_name:', identifiers[2])
-        print()
-
-    mode = input('Enter "manual" for manual mode, or anything else to run '
-                 'testing on all recently ended auctions: ')
-    if mode == 'manual':
-        inp = input('Enter item NBT as b64 string:')
-        summarize(inp)
-    else:
-        import requests
-        res = requests.get('https://api.hypixel.net/skyblock/auctions_ended')
-        for auction in res.json()['auctions']:
-            b64 = auction['item_bytes']
-            summarize(b64, verbose=False)
