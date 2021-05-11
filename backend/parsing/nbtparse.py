@@ -214,7 +214,7 @@ def _get_pet_attrs(nbt: NbtTag) -> Dict[str, Any]:
     :return: Dictionary containing the pet attributes of the item.
     """
     extra_attrs = _get_extra_attrs(nbt)
-    as_str = getattr(extra_attrs.get('petInfo'), 'value', '{}')
+    as_str = extra_attrs.get('petInfo', '{}')
     return json.loads(as_str)
 
 
@@ -286,7 +286,7 @@ def extract_identifiers(nbt: NbtTag) -> Tuple[str, str, str]:
     # Specialization for runes
     elif api_id == 'RUNE':
         rune, lvl = extract_rune(nbt)
-        item_id = f'{rune}_{lvl}_RUNE'
+        item_id = f'{rune}_RUNE_{lvl}'
         base_name = extract_generic_base_name(nbt).rsplit(' ', 1)[0] \
             + f' {lvl}'
         display_name = extract_generic_display_name(nbt)

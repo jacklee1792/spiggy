@@ -2,6 +2,8 @@ from discord import TextChannel
 from discord.ext import commands, tasks
 from discord.ext.commands import Bot, Cog
 from discord.ext.commands.context import Context
+from datetime import datetime, timezone
+
 from backend.controllers.ahcontrol import AuctionHouseControl
 from typing import List, Optional
 from models.auction import ActiveAuction, EndedAuction
@@ -35,11 +37,28 @@ class AuctionHouseCog(Cog):
         else:
             def is_match(auction: ActiveAuction):
                 return auction.item.item_id == item_id and auction.is_bin
-            matches = list(filter(is_match, self.active_auctions))
+            matches = [auction for auction in self.active_auctions
+                       if is_match(auction)]
             matches.sort(key=lambda a: a.price)
             matches = matches[:5]
             for match in matches:
                 await ctx.send(f'{match.seller.username} {match.price}')
+
+    @commands.command()
+    async def endsoon(self, ctx: Context, item_id: str):
+        if not self.active_auctions:
+            return await ctx.send('No active auctions cached!')
+        else:
+            def is_match(auction: ActiveAuction):
+                return auction.item.item_id == item_id and not auction.is_bin
+            matches = [auction for auction in self.active_auctions
+                       if is_match(auction)]
+            matches.sort(key=lambda a: a.end_time)
+            matches = matches[:5]
+            for match in matches:
+                dt = match.end_time - datetime.now(tz=timezone.utc)
+                await ctx.send(f'{match.seller.username} {match.price} '
+                               f'(ending in {dt})')
 
     @property
     def dump_channel(self) -> Optional[TextChannel]:

@@ -35,7 +35,7 @@ class AuctionHouseControl:
 
     def __init__(self,
                  recency_lower_bound: int = 20,
-                 recency_upper_bound: int = 35,
+                 recency_upper_bound: int = 40,
                  batch_size: int = 15000,
                  check_delay: int = 2) -> None:
         """
