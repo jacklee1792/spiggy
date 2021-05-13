@@ -73,7 +73,9 @@ class AuctionHouseObserver:
                 res = await res.json()
 
         last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
-        if self.last_update is not None and last_update != self.last_update:
+        unexpected_update = self.last_update is not None \
+                            and last_update != self.last_update
+        if not res['success'] or unexpected_update:
             raise UnexpectedUpdateError('The Skyblock API updated while '
                                         'collecting data.')
 
@@ -100,8 +102,10 @@ class AuctionHouseObserver:
 
         lb = timedelta(seconds=self.recency_lower_bound)
         ub = timedelta(seconds=self.recency_upper_bound)
+        already_cached = self.last_update is not None \
+                         and self.last_update == last_update
 
-        if lb <= datetime.now() - last_update <= ub:
+        if lb <= datetime.now() - last_update <= ub and not already_cached:
             self.last_update = last_update
         else:
             return
@@ -110,7 +114,11 @@ class AuctionHouseObserver:
         page_count = res['totalPages']
         tasks = [self._get_active_auctions_page(page)
                  for page in range(1, page_count)]
-        responses = await asyncio.gather(*tasks)
+        try:
+            responses = await asyncio.gather(*tasks)
+        except UnexpectedUpdateError:
+            return
+
         responses = list(itertools.chain.from_iterable(responses))
 
         # Parse with multiprocessing

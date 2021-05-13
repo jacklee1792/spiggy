@@ -44,8 +44,10 @@ def get_historical_price(item_id: str, rarity: str) \
     :param rarity: The rarity of interest.
     :return: A list containing the historical price of the given parameters.
     """
+
+    # Add date parameter later
     sql = 'SELECT timestamp, price FROM price_history WHERE ' \
-          ' item_id = ? AND rarity = ?'
+          ' item_id = ? AND rarity = ? AND timestamp > "2021-05-12"'
     results = _conn.execute(sql, (item_id, rarity)).fetchall()
 
     def as_datetime(s: str) -> datetime:

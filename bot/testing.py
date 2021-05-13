@@ -43,7 +43,7 @@ if __name__ == '__main__':
     ax.yaxis.set_major_formatter(formatter)
 
     # Date formatting
-    locator = mdates.AutoDateLocator(minticks=5, maxticks=8)
+    locator = mdates.AutoDateLocator(minticks=5, maxticks=15)
     formatter = mdates.ConciseDateFormatter(locator)
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(formatter)
@@ -52,6 +52,6 @@ if __name__ == '__main__':
     plt.plot(*zip(*results))
 
     # Fix y-axis
-    ax.set_ylim(bottom=0)
+    # ax.set_ylim(bottom=0)
 
     plt.show()
