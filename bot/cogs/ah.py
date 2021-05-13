@@ -112,8 +112,9 @@ class AuctionHouseCog(Cog):
         """
         current_prices = defaultdict(list)
         for auction in self.obs.persisting_auctions:
-            key = auction.item.item_id, auction.item.rarity
-            current_prices[key].append(auction.unit_price)
+            if auction.is_bin:
+                key = auction.item.item_id, auction.item.rarity
+                current_prices[key].append(auction.unit_price)
         for key, prices in current_prices.items():
             self.lbin_stats[key].append(min(prices))
 
