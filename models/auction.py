@@ -16,6 +16,15 @@ class Auction:
     price: float
     item: Item
 
+    @property
+    def unit_price(self) -> float:
+        """
+        Return the unit price of the item.
+
+        :return: The unit price of the item.
+        """
+        return self.price / self.item.stack_size
+
 
 class EndedAuction(Auction):
     """

@@ -3,10 +3,12 @@ from discord.ext import commands, tasks
 from discord.ext.commands import Bot, Cog
 from discord.ext.commands.context import Context
 from datetime import datetime, timezone
+from typing import List, Optional, Tuple, Dict
+from collections import defaultdict
 
-from backend.controllers.ahcontrol import AuctionHouseControl
-from typing import List, Optional
-from models.auction import ActiveAuction, EndedAuction
+from backend.controllers.ahcontrol import AuctionHouseObserver
+from models.auction import ActiveAuction
+from backend.database import database
 
 
 class AuctionHouseCog(Cog):
@@ -14,8 +16,9 @@ class AuctionHouseCog(Cog):
     Bot cog which handles auction commands.
     """
     bot: Bot
-    ahc: AuctionHouseControl
-    active_auctions: List[ActiveAuction]
+    obs: AuctionHouseObserver
+    lbin_stats: Dict[Tuple[str, str], List[float]]
+    update_lbin_calls: int
 
     def __init__(self, bot: Bot) -> None:
         """
@@ -24,20 +27,25 @@ class AuctionHouseCog(Cog):
         :param bot: The bot object which holds this cog.
         """
         self.bot = bot
-        self.ahc = AuctionHouseControl()
-        self.active_auctions = []
-        self.ahc.add_observer(self.notify_update)
-        self.ahc.add_observer(self.update_active_auctions)
+        self.obs = AuctionHouseObserver()
+        self.lbin_stats = defaultdict(list)
+        self.update_lbin_calls = 0
+
+        # Some sketchy logging for now
+        self.obs.add_observer(self.report_obs)
+        # Maintain lowest BIN statistics
+        self.obs.add_observer(self.update_lbin_statistics)
+
         self.check_new_auctions.start()
 
     @commands.command()
     async def lbin(self, ctx: Context, item_id: str):
-        if not self.active_auctions:
+        if not self.obs.active_auctions:
             return await ctx.send('No active auctions cached!')
         else:
             def is_match(auction: ActiveAuction):
                 return auction.item.item_id == item_id and auction.is_bin
-            matches = [auction for auction in self.active_auctions
+            matches = [auction for auction in self.obs.active_auctions
                        if is_match(auction)]
             matches.sort(key=lambda a: a.price)
             matches = matches[:5]
@@ -46,12 +54,12 @@ class AuctionHouseCog(Cog):
 
     @commands.command()
     async def endsoon(self, ctx: Context, item_id: str):
-        if not self.active_auctions:
+        if not self.obs.active_auctions:
             return await ctx.send('No active auctions cached!')
         else:
             def is_match(auction: ActiveAuction):
                 return auction.item.item_id == item_id and not auction.is_bin
-            matches = [auction for auction in self.active_auctions
+            matches = [auction for auction in self.obs.active_auctions
                        if is_match(auction)]
             matches.sort(key=lambda a: a.end_time)
             matches = matches[:5]
@@ -72,32 +80,55 @@ class AuctionHouseCog(Cog):
     @tasks.loop(seconds=2)
     async def check_new_auctions(self) -> None:
         """
-        Check for new auctions on the ahc object.
+        Check for new auctions on the obs object.
+
+        :return: None.
+        """
+        await self.obs.check_new_auctions()
+
+    async def report_obs(self) -> None:
+        """
+        Report some statistics related to the auction house observer.
 
         :return: None.
         """
         if self.dump_channel:
-            await self.dump_channel.send('Checking for new auctions...')
-        await self.ahc.check_new_auctions()
+            la = len(self.obs.active_auctions)
+            le = len(self.obs.ended_auctions)
+            lp = len(self.obs.persisting_auctions)
+            upd = self.obs.last_update.strftime('%-I:%M:%S %p')
+            await self.dump_channel.send(f'Currently, there are {la} active,'
+                                         f' {le} ended, and {lp} persisting'
+                                         f' auctions in the observer. (Last'
+                                         f' updated {upd})')
 
-    def update_active_auctions(self,
-                               active_auctions: List[ActiveAuction],
-                               **kwargs) -> None:
-        self.active_auctions = active_auctions
-
-    async def notify_update(self,
-                            active_auctions: List[ActiveAuction],
-                            ended_auctions: List[EndedAuction]) -> None:
+    async def update_lbin_statistics(self) -> None:
         """
-        Notify the dump channel about new auctions.
+        Update the lowest BIN statistics which map a (item_id, rarity) pair to
+        a list of lowest prices observed in persisting auctions. Once enough
+        data has been collected, record it to the database.
 
         :return: None.
         """
-        if self.dump_channel:
-            la = len(active_auctions)
-            le = len(ended_auctions)
-            await self.dump_channel.send(f'Found {la} new active auctions and'
-                                         f' {le} new ended auctions')
+        current_prices = defaultdict(list)
+        for auction in self.obs.persisting_auctions:
+            key = auction.item.item_id, auction.item.rarity
+            current_prices[key].append(auction.unit_price)
+        for key, prices in current_prices.items():
+            self.lbin_stats[key].append(min(prices))
+
+        self.update_lbin_calls += 1
+
+        # Update every 15 calls
+        if self.update_lbin_calls == 15:
+            d = {}
+            for key, prices in self.lbin_stats.items():
+                d[key] = sum(prices) / len(prices)
+            database.save_prices(d)
+
+            # Reset
+            self.update_lbin_calls = 0
+            self.lbin_stats = defaultdict(list)
 
 
 def setup(bot: Bot):

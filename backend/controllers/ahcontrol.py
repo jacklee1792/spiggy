@@ -3,7 +3,7 @@ import multiprocessing
 import itertools
 import inspect
 
-from typing import Callable, List, Dict, Union, Coroutine
+from typing import Callable, List, Dict, Union, Coroutine, Optional
 from aiohttp import ClientSession
 from datetime import datetime, timedelta
 
@@ -13,33 +13,33 @@ ACTIVE_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions'
 ENDED_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions_ended'
 
 
-class SkyblockAPIError(Exception):
-    pass
-
-
 class UnexpectedUpdateError(Exception):
     pass
 
 
-class AuctionHouseControl:
+class AuctionHouseObserver:
     """
-    Controller which wraps some of the operations associated with querying the
-    Skyblock API.
+    This class wraps some of the operations associated with querying the
+    Skyblock API. It stores the most recent auctions related data as
+    instance variables, and supports "refreshing" through check_new_auctions.
     """
     recency_lower_bound: int
     recency_upper_bound: int
-    auctions_last_fetch: datetime
     batch_size: int
     check_delay: int
     observers: List[Union[Callable, Coroutine]]
 
+    active_auctions: List[ActiveAuction]
+    ended_auctions: List[EndedAuction]
+    persisting_auctions: List[ActiveAuction]
+    last_update: Optional[datetime]
+
     def __init__(self,
                  recency_lower_bound: int = 20,
                  recency_upper_bound: int = 40,
-                 batch_size: int = 15000,
-                 check_delay: int = 2) -> None:
+                 batch_size: int = 15000) -> None:
         """
-        Construct an AuctionHouseControl instance.
+        Construct an AuctionHouseObserver instance.
 
         :param recency_lower_bound: The minimum separation between the current
         time and the endpoint update to invoke caching.
@@ -47,15 +47,17 @@ class AuctionHouseControl:
         time and the endpoint update to invoke caching.
         :param batch_size: The number of active auction dictionaries to convert
         into ActiveAuction objects at once.
-        :param check_delay: How often a check for new auctions is performed.
         :return: None.
         """
         self.recency_lower_bound = recency_lower_bound
         self.recency_upper_bound = recency_upper_bound
-        self.auctions_last_fetch = datetime.now()
         self.batch_size = batch_size
-        self.check_delay = check_delay
+
+        self.last_update = None
         self.observers = []
+        self.active_auctions = []
+        self.ended_auctions = []
+        self.persisting_auctions = []
 
     async def _get_active_auctions_page(self, page: int) -> List[Dict]:
         """
@@ -71,9 +73,9 @@ class AuctionHouseControl:
                 res = await res.json()
 
         last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
-        if last_update != self.auctions_last_fetch:
-            print(last_update, self.auctions_last_fetch)
-            raise UnexpectedUpdateError
+        if self.last_update is not None and last_update != self.last_update:
+            raise UnexpectedUpdateError('The Skyblock API updated while '
+                                        'collecting data.')
 
         return res['auctions']
 
@@ -100,7 +102,7 @@ class AuctionHouseControl:
         ub = timedelta(seconds=self.recency_upper_bound)
 
         if lb <= datetime.now() - last_update <= ub:
-            self.auctions_last_fetch = last_update
+            self.last_update = last_update
         else:
             return
 
@@ -119,9 +121,7 @@ class AuctionHouseControl:
                 batch_end = batch_start + self.batch_size
                 ext = p.map(ActiveAuction, responses[batch_start:batch_end])
                 active_auctions.extend(ext)
-
                 # Batch is done, briefly return control to event loop
-                print(f'batch starting at {batch_start} done')
                 batch_start = batch_end
                 await asyncio.sleep(1)
 
@@ -131,63 +131,28 @@ class AuctionHouseControl:
                 res = await res.json()
         ended_auctions = list(map(EndedAuction, res['auctions']))
 
+        # Figure out which auctions persisted from the last round
+        previous_ids = {auction.auction_id for auction in self.active_auctions}
+        self.persisting_auctions = [auction for auction in active_auctions if
+                                    auction.auction_id in previous_ids]
+
+        # Update with new active and ended auctions
+        self.active_auctions = active_auctions
+        self.ended_auctions = ended_auctions
+
         # Notify the observers
         for func in self.observers:
             if inspect.iscoroutinefunction(func):
-                await func(active_auctions=active_auctions,
-                           ended_auctions=ended_auctions)
+                await func()
             else:
-                func(active_auctions=active_auctions,
-                     ended_auctions=ended_auctions)
+                func()
 
     def add_observer(self, func: Union[Callable, Coroutine]) -> None:
         """
-        Add a callable which observes updates in the active/ended auction
-        endpoints. When an update is detected, each observer will be called
-        with keyword arguments <active_auctions> and <ended_auctions>.
+        Add a callable or coroutine to be called with no arguments whenever
+        new auctions are cached.
 
-        :param func: The callable to be added as an observer.
+        :param func: The callable or coroutine to be added as an observer.
         :return: None.
         """
         self.observers.append(func)
-
-    async def start_checking(self) -> None:
-        """
-        Start checking occasionally for new auctions.
-
-        :return: None.
-        """
-        while True:
-            await self.check_new_auctions()
-            await asyncio.sleep(self.check_delay)
-
-
-if __name__ == '__main__':
-
-    # Testing if AuctionHouseControl returns control to the event loop properly
-    # and runs all observers as expected
-
-    def f(active_auctions, ended_auctions):
-        print(f'got something at {datetime.now()}')
-        la = len(active_auctions)
-        le = len(ended_auctions)
-        print(f'there are {la} active, {le} ended')
-
-    def g(active_auctions, ended_auctions):
-        ids = [auction.auction_id for auction in active_auctions]
-        assert len(ids) == len(set(ids))
-        print('OK ids are distinct')
-
-    async def spam():
-        while True:
-            print('spam')
-            await asyncio.sleep(0.5)
-
-    ahc = AuctionHouseControl()
-    ahc.add_observer(f)
-    ahc.add_observer(g)
-
-    async def bot():
-        await asyncio.gather(ahc.start_checking(), spam())
-
-    asyncio.run(bot())
