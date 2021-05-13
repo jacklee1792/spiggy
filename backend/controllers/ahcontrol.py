@@ -35,8 +35,8 @@ class AuctionHouseObserver:
     last_update: Optional[datetime]
 
     def __init__(self,
-                 recency_lower_bound: int = 20,
-                 recency_upper_bound: int = 40,
+                 recency_lower_bound: int = 15,
+                 recency_upper_bound: int = 30,
                  batch_size: int = 15000) -> None:
         """
         Construct an AuctionHouseObserver instance.
@@ -72,12 +72,14 @@ class AuctionHouseObserver:
             async with session.get(url) as res:
                 res = await res.json()
 
+        if not res['success']:
+            raise UnexpectedUpdateError
+
         last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
         unexpected_update = self.last_update is not None \
                             and last_update != self.last_update
-        if not res['success'] or unexpected_update:
-            raise UnexpectedUpdateError('The Skyblock API updated while '
-                                        'collecting data.')
+        if unexpected_update:
+            raise UnexpectedUpdateError
 
         return res['auctions']
 
