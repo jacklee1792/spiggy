@@ -1,11 +1,13 @@
-from discord import TextChannel
+from discord import TextChannel, File
 from discord.ext import commands, tasks
 from discord.ext.commands import Bot, Cog
 from discord.ext.commands.context import Context
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple, Dict
 from collections import defaultdict
+from pathlib import Path
 
+from bot import utils
 from backend.controllers.ahcontrol import AuctionHouseObserver
 from models.auction import ActiveAuction
 from backend.database import database
@@ -17,7 +19,7 @@ class AuctionHouseCog(Cog):
     """
     bot: Bot
     obs: AuctionHouseObserver
-    lbin_stats: Dict[Tuple[str, str], List[float]]
+    lbin_stats: Dict[Tuple[str, str], List[Tuple[float, int]]]
     update_lbin_calls: int
 
     def __init__(self, bot: Bot) -> None:
@@ -39,9 +41,10 @@ class AuctionHouseCog(Cog):
         self.check_new_auctions.start()
 
     @commands.command()
-    async def lbin(self, ctx: Context, item_id: str):
+    async def lbin(self, ctx: Context, item_id: str) -> None:
         if not self.obs.active_auctions:
-            return await ctx.send('No active auctions cached!')
+            await ctx.send('No active auctions cached!')
+            return
         else:
             def is_match(auction: ActiveAuction):
                 return auction.item.item_id == item_id and auction.is_bin
@@ -53,9 +56,10 @@ class AuctionHouseCog(Cog):
                 await ctx.send(f'{match.seller.username} {match.price}')
 
     @commands.command()
-    async def endsoon(self, ctx: Context, item_id: str):
+    async def endsoon(self, ctx: Context, item_id: str) -> None:
         if not self.obs.active_auctions:
-            return await ctx.send('No active auctions cached!')
+            await ctx.send('No active auctions cached!')
+            return
         else:
             def is_match(auction: ActiveAuction):
                 return auction.item.item_id == item_id and not auction.is_bin
@@ -67,6 +71,16 @@ class AuctionHouseCog(Cog):
                 dt = match.end_time - datetime.now(tz=timezone.utc)
                 await ctx.send(f'{match.seller.username} {match.price} '
                                f'(ending in {dt})')
+
+    @commands.command()
+    async def plot(self, ctx: Context, item_id: str) -> None:
+        # For now, use a default span of 1 day
+        if not database.has_record(item_id):
+            await ctx.send('No such item found in the database!')
+            return
+        utils.plot_ah_price(item_id, 1)
+        plot_loc = Path(__file__).parent.parent / 'plot.png'
+        await ctx.send(file=File(plot_loc, filename='plot.png'))
 
     @property
     def dump_channel(self) -> Optional[TextChannel]:
@@ -116,21 +130,23 @@ class AuctionHouseCog(Cog):
                 key = auction.item.item_id, auction.item.rarity
                 current_prices[key].append(auction.unit_price)
         for key, prices in current_prices.items():
-            self.lbin_stats[key].append(min(prices))
+            self.lbin_stats[key].append((min(prices), len(prices)))
 
         self.update_lbin_calls += 1
 
         # Update every 15 calls
         if self.update_lbin_calls == 15:
             d = {}
-            for key, prices in self.lbin_stats.items():
-                d[key] = sum(prices) / len(prices)
+            for key, stats in self.lbin_stats.items():
+                prices, counts = zip(*stats)
+                average_lbin = sum(prices) / len(prices)
+                occurrences = sum(counts)
+                d[key] = (average_lbin, occurrences)
             database.save_prices(d)
 
             # Reset
             self.update_lbin_calls = 0
             self.lbin_stats = defaultdict(list)
-
 
 def setup(bot: Bot):
     bot.add_cog(AuctionHouseCog(bot))

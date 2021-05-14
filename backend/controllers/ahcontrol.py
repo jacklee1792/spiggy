@@ -35,8 +35,8 @@ class AuctionHouseObserver:
     last_update: Optional[datetime]
 
     def __init__(self,
-                 recency_lower_bound: int = 15,
-                 recency_upper_bound: int = 30,
+                 recency_lower_bound: int = 40,
+                 recency_upper_bound: int = 50,
                  batch_size: int = 15000) -> None:
         """
         Construct an AuctionHouseObserver instance.
@@ -73,12 +73,16 @@ class AuctionHouseObserver:
                 res = await res.json()
 
         if not res['success']:
+            print(f'res success false on page {page}')
             raise UnexpectedUpdateError
 
         last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
         unexpected_update = self.last_update is not None \
                             and last_update != self.last_update
         if unexpected_update:
+            print(f'unexpected update on page {page}'
+                  f' (expected {self.last_update.strftime("%-I:%M:%S %p")}'
+                  f' but got {last_update.strftime("%-I:%M:%S %p")})')
             raise UnexpectedUpdateError
 
         return res['auctions']
@@ -100,7 +104,12 @@ class AuctionHouseObserver:
         async with ClientSession() as session:
             async with session.get(ACTIVE_AUCTIONS_ENDPOINT) as res:
                 res = await res.json()
-                last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
+                try:
+                    last_update = datetime.fromtimestamp(
+                        res['lastUpdated'] / 1000)
+                # Maybe getting rate-limited?
+                except KeyError:
+                    return
 
         lb = timedelta(seconds=self.recency_lower_bound)
         ub = timedelta(seconds=self.recency_upper_bound)
@@ -114,6 +123,7 @@ class AuctionHouseObserver:
 
         # Get the active auctions
         page_count = res['totalPages']
+        print(f'[{datetime.now()}] trying to cache {page_count} pages')
         tasks = [self._get_active_auctions_page(page)
                  for page in range(1, page_count)]
         try:
@@ -122,6 +132,7 @@ class AuctionHouseObserver:
             return
 
         responses = list(itertools.chain.from_iterable(responses))
+        print(f'[{datetime.now()}] OK got API response')
 
         # Parse with multiprocessing
         active_auctions = []
@@ -140,6 +151,8 @@ class AuctionHouseObserver:
             async with session.get(ENDED_AUCTIONS_ENDPOINT) as res:
                 res = await res.json()
         ended_auctions = list(map(EndedAuction, res['auctions']))
+
+        print(f'[{datetime.now()}] OK done casting to models')
 
         # Figure out which auctions persisted from the last round
         previous_ids = {auction.auction_id for auction in self.active_auctions}
