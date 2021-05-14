@@ -1,6 +1,5 @@
 import requests
 
-
 MOJANG_ENDPOINT = 'https://sessionserver.mojang.com/session/minecraft/profile/'
 
 
@@ -23,7 +22,7 @@ class User:
         """
         Get the username of the user from its UUID instance variable.
 
-        This is dangerous right now, ratelimiting + caching needs to be
+        This is dangerous right now, rate-limiting + caching needs to be
         implemented later.
 
         :return: The username of the user.

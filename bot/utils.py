@@ -1,11 +1,11 @@
-import numpy as np
-
-from matplotlib import pyplot as plt, colors as mcolors, dates as mdates
-from matplotlib.ticker import FuncFormatter
-from matplotlib.patches import Polygon
 from datetime import datetime
 from pathlib import Path
 from typing import List
+
+import numpy as np
+from matplotlib import colors as mcolors, dates as mdates, pyplot as plt
+from matplotlib.patches import Polygon
+from matplotlib.ticker import FuncFormatter
 
 from backend.database import database
 
@@ -65,7 +65,8 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
     z[:, :, :3] = rgb
     z[:, :, -1] = np.linspace(0, alpha, 100)[:, None]
 
-    x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
+    x_min, x_max = xs.min(initial=None), xs.max(initial=None)
+    y_min, y_max = ys.min(initial=None), ys.max(initial=None)
     y_margin = 0.5 * (y_max - y_min)
     im = ax.imshow(z, aspect='auto',
                    extent=[x_min, x_max, y_min - y_margin, y_max],

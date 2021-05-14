@@ -1,12 +1,11 @@
 import base64
+import gzip
 import io
 import json
 import re
-import gzip
 import struct
-
-from typing import List, Tuple, Optional, Any, Dict, BinaryIO, Union
 from pathlib import Path
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
 _here = Path(__file__).parent
 

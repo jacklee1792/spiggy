@@ -1,9 +1,8 @@
 import sqlite3
-
-from typing import List, Tuple, Dict, Optional
-from pathlib import Path
-from datetime import datetime, timedelta
 from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 _here = Path(__file__).parent
 _conn = sqlite3.connect(_here/'database.db')

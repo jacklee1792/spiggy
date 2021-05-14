@@ -1,11 +1,11 @@
-import discord
+import configparser
 import logging
 import os
-import configparser
-import dotenv
-
-from discord.ext import commands
 from pathlib import Path
+
+import discord
+import dotenv
+from discord.ext import commands
 
 
 def main():

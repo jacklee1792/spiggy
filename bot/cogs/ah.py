@@ -1,16 +1,17 @@
-from discord import TextChannel, File
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+from discord import File, TextChannel
 from discord.ext import commands, tasks
 from discord.ext.commands import Bot, Cog
 from discord.ext.commands.context import Context
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple, Dict
-from collections import defaultdict
-from pathlib import Path
 
-from bot import utils
 from backend.controllers.ahcontrol import AuctionHouseObserver
-from models.auction import ActiveAuction
 from backend.database import database
+from bot import utils
+from models.auction import ActiveAuction
 
 
 class AuctionHouseCog(Cog):
@@ -147,6 +148,7 @@ class AuctionHouseCog(Cog):
             # Reset
             self.update_lbin_calls = 0
             self.lbin_stats = defaultdict(list)
+
 
 def setup(bot: Bot):
     bot.add_cog(AuctionHouseCog(bot))

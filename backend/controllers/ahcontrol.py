@@ -1,11 +1,11 @@
 import asyncio
-import multiprocessing
-import itertools
 import inspect
-
-from typing import Callable, List, Dict, Union, Coroutine, Optional
-from aiohttp import ClientSession
+import itertools
+import multiprocessing
 from datetime import datetime, timedelta
+from typing import Callable, Coroutine, Dict, List, Optional, Union
+
+from aiohttp import ClientSession
 
 from models.auction import ActiveAuction, EndedAuction
 
@@ -78,7 +78,7 @@ class AuctionHouseObserver:
 
         last_update = datetime.fromtimestamp(res['lastUpdated'] / 1000)
         unexpected_update = self.last_update is not None \
-                            and last_update != self.last_update
+            and last_update != self.last_update
         if unexpected_update:
             print(f'unexpected update on page {page}'
                   f' (expected {self.last_update.strftime("%-I:%M:%S %p")}'
@@ -114,7 +114,7 @@ class AuctionHouseObserver:
         lb = timedelta(seconds=self.recency_lower_bound)
         ub = timedelta(seconds=self.recency_upper_bound)
         already_cached = self.last_update is not None \
-                         and self.last_update == last_update
+            and self.last_update == last_update
 
         if lb <= datetime.now() - last_update <= ub and not already_cached:
             self.last_update = last_update
