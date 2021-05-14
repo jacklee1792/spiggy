@@ -3,7 +3,7 @@ import sqlite3
 from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 from datetime import datetime, timedelta
-from collections import Counter
+from collections import defaultdict
 
 _here = Path(__file__).parent
 _conn = sqlite3.connect(_here/'database.db')
@@ -63,17 +63,20 @@ def guess_rarity(item_id: str) -> Optional[str]:
     :param item_id: The item id to be checked.
     :return: The most predominant rarity of the given item_id, if it exists.
     """
-    sql = 'SELECT rarity FROM price_history WHERE item_id = ?'
-    counts = Counter(_conn.execute(sql, (item_id,)).fetchall())
-    return counts.most_common()[0][0][0] if len(counts) else None
+    sql = 'SELECT rarity, occurrences FROM price_history WHERE item_id = ?'
+    counts = defaultdict(int)
+    for rarity, occurrences in _conn.execute(sql, (item_id,)).fetchall():
+        counts[rarity] += occurrences
+    return max(counts, key=counts.get) if len(counts) else None
 
 
-def has_record(item_id: str) -> bool:
+def has_bin_records(item_id: str) -> bool:
     """
-    Check if a given item ID exists in the database.
+    Check if a given item ID has at least one row in the price_history
+    database.
 
     :param item_id: The item ID to be checked.
-    :return: Whether or not the item ID exists in the database.
+    :return: Whether or not the item ID has BIN auctions recorded for it.
     """
     sql = 'SELECT item_id FROM price_history WHERE item_id = ? LIMIT 1'
     return len(_conn.execute(sql, (item_id,)).fetchall()) != 0

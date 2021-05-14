@@ -75,7 +75,7 @@ class AuctionHouseCog(Cog):
     @commands.command()
     async def plot(self, ctx: Context, item_id: str) -> None:
         # For now, use a default span of 1 day
-        if not database.has_record(item_id):
+        if not database.has_bin_records(item_id):
             await ctx.send('No such item found in the database!')
             return
         utils.plot_ah_price(item_id, 1)

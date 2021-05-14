@@ -98,7 +98,8 @@ def plot_ah_price(item_id: str, span: int) -> None:
 
     # Setup
     plt.clf()
-    fig, ax = plt.subplots()
+    plt.cla()
+    fig, ax = plt.gcf(), plt.gca()
     plt.grid()
 
     # Titles
