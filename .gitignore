@@ -1,8 +1,16 @@
+# Ignore Pycharm / Python things
 venv
-**/.DS_Store
-**/.env
 **/.idea
 **/__pycache__
+**/.pytest_cache
+
+# Ignore database and plot file
 **/database.db
 **/plot.png
 
+# Ignore MacOS folder attributes
+**/.DS_Store
+
+# Ignore user preferences
+**/.env
+**/spiggy.ini
