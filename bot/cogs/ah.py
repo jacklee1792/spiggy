@@ -1,4 +1,5 @@
 from collections import defaultdict
+from configparser import ConfigParser
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -14,6 +15,15 @@ from bot import utils
 from models.auction import ActiveAuction
 
 
+_here = Path(__file__).parent
+_cfg = ConfigParser()
+_cfg.read(_here.parent.parent / 'config/spiggy.ini')
+
+CHECK_COOLDOWN = _cfg['AH Caching'].getfloat('CheckCooldown')
+PRICE_POINT_SPAN = _cfg['AH Caching'].getfloat('PricePointSpan')
+DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
+
+
 class AuctionHouseCog(Cog):
     """
     Bot cog which handles auction commands.
@@ -21,7 +31,7 @@ class AuctionHouseCog(Cog):
     bot: Bot
     obs: AuctionHouseObserver
     lbin_stats: Dict[Tuple[str, str], List[Tuple[float, int]]]
-    update_lbin_calls: int
+    data_points: int
 
     def __init__(self, bot: Bot) -> None:
         """
@@ -32,7 +42,7 @@ class AuctionHouseCog(Cog):
         self.bot = bot
         self.obs = AuctionHouseObserver()
         self.lbin_stats = defaultdict(list)
-        self.update_lbin_calls = 0
+        self.data_points = 0
 
         # Some sketchy logging for now
         self.obs.add_observer(self.report_obs)
@@ -75,11 +85,11 @@ class AuctionHouseCog(Cog):
 
     @commands.command()
     async def plot(self, ctx: Context, item_id: str) -> None:
-        # For now, use a default span of 1 day
-        if not database.has_bin_records(item_id):
-            await ctx.send('No such item found in the database!')
+        try:
+            utils.plot_ah_price(item_id, span=DEFAULT_PLOT_SPAN)
+        except ValueError:
+            await ctx.send('Not enough values for the given item!')
             return
-        utils.plot_ah_price(item_id, 1)
         plot_loc = Path(__file__).parent.parent / 'plot.png'
         await ctx.send(file=File(plot_loc, filename='plot.png'))
 
@@ -92,7 +102,7 @@ class AuctionHouseCog(Cog):
         """
         return self.bot.cogs['MetaCog'].dump_channel
 
-    @tasks.loop(seconds=2)
+    @tasks.loop(seconds=CHECK_COOLDOWN)
     async def check_new_auctions(self) -> None:
         """
         Check for new auctions on the obs object.
@@ -119,7 +129,7 @@ class AuctionHouseCog(Cog):
 
     async def update_lbin_statistics(self) -> None:
         """
-        Update the lowest BIN statistics which map a (item_id, rarity) pair to
+        Update the lowest BIN statistics which map (item_id, rarity) pairs to
         a list of lowest prices observed in persisting auctions. Once enough
         data has been collected, record it to the database.
 
@@ -133,10 +143,9 @@ class AuctionHouseCog(Cog):
         for key, prices in current_prices.items():
             self.lbin_stats[key].append((min(prices), len(prices)))
 
-        self.update_lbin_calls += 1
+        self.data_points += 1
 
-        # Update every 15 calls
-        if self.update_lbin_calls == 15:
+        if self.data_points == PRICE_POINT_SPAN:
             d = {}
             for key, stats in self.lbin_stats.items():
                 prices, counts = zip(*stats)
@@ -145,8 +154,12 @@ class AuctionHouseCog(Cog):
                 d[key] = (average_lbin, occurrences)
             database.save_prices(d)
 
+            # Log to dump channel
+            if self.dump_channel:
+                await self.dump_channel.send('New data point added!')
+
             # Reset
-            self.update_lbin_calls = 0
+            self.data_points = 0
             self.lbin_stats = defaultdict(list)
 
 

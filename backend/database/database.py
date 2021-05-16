@@ -1,12 +1,18 @@
+import functools
 import sqlite3
 from collections import defaultdict
+from configparser import ConfigParser
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 
 _here = Path(__file__).parent
-_conn = sqlite3.connect(_here/'database.db')
+_cfg = ConfigParser()
+_cfg.read(_here.parent.parent / 'config/spiggy.ini')
 
+WRITE_TO_DATABASE = _cfg['Database'].getboolean('WriteToDatabase')
+
+_conn = sqlite3.connect(_here/'database.db')
 _conn.execute(
     'CREATE TABLE IF NOT EXISTS price_history ('
     '  timestamp      DATETIME DEFAULT CURRENT_TIMESTAMP,'
@@ -18,6 +24,22 @@ _conn.execute(
 )
 
 
+def db_write_guard(func: Callable) -> Callable:
+    """
+    Wrapper which ensures that the config allows writing to the database before
+    writing to it.
+
+    :param func:
+    :return:
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if WRITE_TO_DATABASE:
+            func(*args, **kwargs)
+    return wrapper
+
+
+@db_write_guard
 def save_prices(d: Dict[Tuple[str, str], Tuple[float, int]]) -> None:
     """
     Given a dict which maps a (item_id, rarity) pairs to (price, occurrences)
@@ -67,15 +89,3 @@ def guess_rarity(item_id: str) -> Optional[str]:
     for rarity, occurrences in _conn.execute(sql, (item_id,)).fetchall():
         counts[rarity] += occurrences
     return max(counts, key=counts.get) if len(counts) else None
-
-
-def has_bin_records(item_id: str) -> bool:
-    """
-    Check if a given item ID has at least one row in the price_history
-    database.
-
-    :param item_id: The item ID to be checked.
-    :return: Whether or not the item ID has BIN auctions recorded for it.
-    """
-    sql = 'SELECT item_id FROM price_history WHERE item_id = ? LIMIT 1'
-    return len(_conn.execute(sql, (item_id,)).fetchall()) != 0

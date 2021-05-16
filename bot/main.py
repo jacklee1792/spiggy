@@ -19,9 +19,9 @@ def main():
     # Read config
     config_folder = Path(__file__).parent.parent / 'config'
     config = configparser.ConfigParser()
-    config.read(config_folder / 'bot.ini')
+    config.read(config_folder / 'spiggy.ini')
 
-    command_prefix = config['bot']['command_prefix']
+    command_prefix = config['Bot']['CommandPrefix']
     bot = commands.Bot(command_prefix=command_prefix,
                        intents=discord.Intents.default())
 
