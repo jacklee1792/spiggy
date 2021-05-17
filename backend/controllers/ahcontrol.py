@@ -22,6 +22,7 @@ CACHE_COOLDOWN = _cfg['AH Caching'].getfloat('CacheCooldown')
 CACHE_COOLDOWN_TD = timedelta(minutes=CACHE_COOLDOWN) - timedelta(seconds=1)
 PROCESSING_BATCH_SIZE = _cfg['AH Caching'].getint('ProcessingBatchSize')
 BATCH_DELAY = _cfg['AH Caching'].getfloat('BatchDelay')
+USE_MULTIPROCESSING = _cfg['AH Caching'].getboolean('UseMultiprocessing')
 
 ACTIVE_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions'
 ENDED_AUCTIONS_ENDPOINT = 'https://api.hypixel.net/skyblock/auctions_ended'
@@ -152,15 +153,23 @@ class AuctionHouseObserver:
         responses = list(itertools.chain.from_iterable(responses))
         print(f'[{datetime.now()}] OK got API response')
 
-        # Parse with multiprocessing
+        # (Maybe) parse with multiprocessing
         active_auctions = []
-        with Pool() as p:
+        if USE_MULTIPROCESSING:
+            with Pool() as p:
+                batch_start = 0
+                while batch_start < len(responses):
+                    batch_end = batch_start + self.batch_size
+                    ext = p.map(ActiveAuction, responses[batch_start:batch_end])
+                    active_auctions.extend(ext)
+                    batch_start = batch_end
+                    await asyncio.sleep(BATCH_DELAY)
+        else:
             batch_start = 0
             while batch_start < len(responses):
                 batch_end = batch_start + self.batch_size
-                ext = p.map(ActiveAuction, responses[batch_start:batch_end])
+                ext = list(map(ActiveAuction, responses[batch_start:batch_end]))
                 active_auctions.extend(ext)
-                # Batch is done, briefly return control to event loop
                 batch_start = batch_end
                 await asyncio.sleep(BATCH_DELAY)
 
