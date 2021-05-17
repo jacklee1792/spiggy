@@ -240,7 +240,7 @@ def extract_generic_base_name(nbt: NbtTag) -> str:
     :return: The name of the item with extra symbols removed and reforge
     dropped, if applicable.
     """
-    name = re.sub('[✪⚚✦◆]', '', extract_generic_display_name(nbt)).strip()
+    name = re.sub('[✪⚚✦◆™]', '', extract_generic_display_name(nbt)).strip()
     # No reforge, we are done
     if not extract_reforge(nbt):
         return name

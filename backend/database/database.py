@@ -6,6 +6,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 
+from fuzzywuzzy import fuzz, process
+
+from models.item import Item
+
+
 _here = Path(__file__).parent
 _cfg = ConfigParser()
 _cfg.read(_here.parent.parent / 'config/spiggy.ini')
@@ -23,11 +28,23 @@ _conn.execute(
     ')'
 )
 
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS name_link ('
+    '  item_id        TEXT,'
+    '  basename       TEXT'
+    ')'
+)
 
-def db_write_guard(func: Callable) -> Callable:
+_conn.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS name_idx '
+    'ON name_link(item_id, base_name)'
+)
+
+
+def db_write(func: Callable) -> Callable:
     """
     Wrapper which ensures that the config allows writing to the database before
-    writing to it.
+    writing to it, and commits after the operation.
 
     :param func:
     :return:
@@ -36,10 +53,11 @@ def db_write_guard(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         if WRITE_TO_DATABASE:
             func(*args, **kwargs)
+            _conn.commit()
     return wrapper
 
 
-@db_write_guard
+@db_write
 def save_prices(d: Dict[Tuple[str, str], Tuple[float, int]]) -> None:
     """
     Given a dict which maps a (item_id, rarity) pairs to (price, occurrences)
@@ -51,7 +69,6 @@ def save_prices(d: Dict[Tuple[str, str], Tuple[float, int]]) -> None:
     sql = 'INSERT INTO price_history VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)'
     for (item_id, rarity), (price, occurrences) in d.items():
         _conn.execute(sql, (item_id, rarity, price, occurrences))
-    _conn.commit()
 
 
 def get_historical_price(item_id: str, rarity: str, days: int) \
@@ -89,3 +106,32 @@ def guess_rarity(item_id: str) -> Optional[str]:
     for rarity, occurrences in _conn.execute(sql, (item_id,)).fetchall():
         counts[rarity] += occurrences
     return max(counts, key=counts.get) if len(counts) else None
+
+
+@db_write
+def save_name_links(items: List[Item]) -> None:
+    """
+    Given a list of items, take into account their item ID/base name
+    relationships and record them into database.
+
+    :param items: The items to be recorded into the database.
+    :return: None.
+    """
+    sql = 'INSERT OR IGNORE INTO name_link VALUES (?, ?)'
+    for item in items:
+        _conn.execute(sql, (item.item_id, item.base_name))
+
+
+def guess_item_id(base_name: str) -> str:
+    """
+    Find the base name recorded in the database which is the most similar to
+    the given base name.
+
+    :param base_name: The base name to be matched.
+    :return: The best item ID match for the given base name.
+    """
+    sql = 'SELECT base_name FROM name_link'
+    choices = _conn.execute(sql).fetchall()
+    base_name_match = process.extractOne(base_name, choices)[0][0]
+    sql2 = 'SELECT item_id FROM name_link WHERE base_name = ?'
+    return _conn.execute(sql2, (base_name_match,)).fetchone()[0]

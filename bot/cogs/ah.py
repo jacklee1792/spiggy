@@ -44,15 +44,17 @@ class AuctionHouseCog(Cog):
         self.lbin_stats = defaultdict(list)
         self.data_points = 0
 
-        # Some sketchy logging for now
-        self.obs.add_observer(self.report_obs)
         # Maintain lowest BIN statistics
         self.obs.add_observer(self.update_lbin_statistics)
+
+        # Update name linking table
+        self.obs.add_observer(self.update_name_links)
 
         self.check_new_auctions.start()
 
     @commands.command()
-    async def lbin(self, ctx: Context, item_id: str) -> None:
+    async def lbin(self, ctx: Context, query: str) -> None:
+        item_id = database.guess_item_id(query)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
             return
@@ -67,7 +69,8 @@ class AuctionHouseCog(Cog):
                 await ctx.send(f'{match.seller.username} {match.price}')
 
     @commands.command()
-    async def endsoon(self, ctx: Context, item_id: str) -> None:
+    async def endsoon(self, ctx: Context, query: str) -> None:
+        item_id = database.guess_item_id(query)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
             return
@@ -84,7 +87,8 @@ class AuctionHouseCog(Cog):
                                f'(ending in {dt})')
 
     @commands.command()
-    async def plot(self, ctx: Context, item_id: str) -> None:
+    async def plot(self, ctx: Context, query: str) -> None:
+        item_id = database.guess_item_id(query)
         try:
             utils.plot_ah_price(item_id, span=DEFAULT_PLOT_SPAN)
         except ValueError:
@@ -93,7 +97,6 @@ class AuctionHouseCog(Cog):
         plot_loc = Path(__file__).parent.parent / 'plot.png'
         await ctx.send(file=File(plot_loc, filename='plot.png'))
 
-    @property
     def dump_channel(self) -> Optional[TextChannel]:
         """
         Get the dump channel of the bot object.
@@ -110,22 +113,6 @@ class AuctionHouseCog(Cog):
         :return: None.
         """
         await self.obs.check_new_auctions()
-
-    async def report_obs(self) -> None:
-        """
-        Report some statistics related to the auction house observer.
-
-        :return: None.
-        """
-        if self.dump_channel:
-            la = len(self.obs.active_auctions)
-            le = len(self.obs.ended_auctions)
-            lp = len(self.obs.persisting_auctions)
-            upd = self.obs.last_update.strftime('%-I:%M:%S %p')
-            await self.dump_channel.send(f'Currently, there are {la} active,'
-                                         f' {le} ended, and {lp} persisting'
-                                         f' auctions in the observer. (Last'
-                                         f' updated {upd})')
 
     async def update_lbin_statistics(self) -> None:
         """
@@ -155,12 +142,22 @@ class AuctionHouseCog(Cog):
             database.save_prices(d)
 
             # Log to dump channel
-            if self.dump_channel:
-                await self.dump_channel.send('New data point added!')
+            if dump_channel := self.dump_channel():
+                await dump_channel.send('New data point added!')
 
             # Reset
             self.data_points = 0
             self.lbin_stats = defaultdict(list)
+
+    async def update_name_links(self) -> None:
+        """
+        Update the name_links table in the database by passing it a list of
+        items.
+
+        :return: None.
+        """
+        items = [auction.item for auction in self.obs.active_auctions]
+        database.save_name_links(items)
 
 
 def setup(bot: Bot):
