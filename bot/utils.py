@@ -1,5 +1,6 @@
 import functools
 import inspect
+from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Coroutine, List, Optional, Union
@@ -8,6 +9,7 @@ import discord
 import numpy as np
 from discord.ext.commands import Cog
 from discord_slash import SlashContext, cog_ext
+from discord_slash.utils.manage_commands import create_choice
 from matplotlib import colors as mcolors, dates as mdates, pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.ticker import FuncFormatter
@@ -17,6 +19,19 @@ from bot import embeds
 
 # TODO Read from config
 SLASH_COMMAND_GUILDS = None
+
+_here = Path(__file__).parent
+_cfg = ConfigParser()
+_cfg.read(_here.parent / 'config/spiggy.ini')
+
+DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
+
+RARITY_CHOICES = [
+    create_choice(name=rarity, value=rarity.upper()) for rarity in
+    ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Mythic', 'Special']
+] + [
+    create_choice(name='Very Special', value='VERY_SPECIAL')
+]
 
 
 def format_number(price: float) -> str:
@@ -91,15 +106,23 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
     plt.ylim(y_min - y_margin, y_max + y_margin)
 
 
-def plot_ah_price(item_id: str, span: int) -> None:
+def plot_ah_price(item_id: str,
+                  span: Optional[int], rarity: Optional[str]) -> None:
     """
     Plot the historical price of an item and store it in plot.png.
 
     :param item_id: The item ID to be plotted.
     :param span: The number of previous days to plot.
+    :param rarity: The rarity of the item to be plotted.
     :return: None.
     """
-    rarity = database.guess_rarity(item_id)
+    if span is None:
+        span = DEFAULT_PLOT_SPAN
+    if rarity is None:
+        rarity = database.guess_rarity(item_id)
+
+    # Make sure the span doesn't break anything
+    span = max(0, min(span, 9999))
     results = database.get_historical_price(item_id, rarity, span)
     xs, ys = zip(*results)
 

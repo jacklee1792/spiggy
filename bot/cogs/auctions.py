@@ -7,8 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from discord import File, TextChannel
 from discord.ext import tasks
 from discord.ext.commands import Bot, Cog
-from discord.ext.commands.context import Context
-from discord_slash import SlashCommandOptionType
+from discord_slash import SlashCommandOptionType, SlashContext
 from discord_slash.utils.manage_commands import create_option
 
 from backend.controllers.ahcontrol import AuctionHouseObserver
@@ -24,7 +23,6 @@ _cfg.read(_here.parent.parent / 'config/spiggy.ini')
 
 CHECK_COOLDOWN = _cfg['AH Caching'].getfloat('CheckCooldown')
 PRICE_POINT_SPAN = _cfg['AH Caching'].getfloat('PricePointSpan')
-DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
 
 
 class AuctionsCog(Cog):
@@ -67,7 +65,7 @@ class AuctionsCog(Cog):
             )
         ]
     )
-    async def lbin(self, ctx: Context, item: str) -> None:
+    async def lbin(self, ctx: SlashContext, item: str) -> None:
         item_id = database.guess_item_id(item)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
@@ -94,7 +92,7 @@ class AuctionsCog(Cog):
             )
         ]
     )
-    async def endsoon(self, ctx: Context, item: str) -> None:
+    async def endsoon(self, ctx: SlashContext, item: str) -> None:
         item_id = database.guess_item_id(item)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
@@ -120,13 +118,29 @@ class AuctionsCog(Cog):
                 description='The name of the item to check',
                 option_type=SlashCommandOptionType.STRING,
                 required=True
+            ),
+            create_option(
+                name='span',
+                description='The number of previous days to be plotted',
+                option_type=SlashCommandOptionType.INTEGER,
+                required=False
+            ),
+            create_option(
+                name='rarity',
+                description='The rarity of the item to be plotted',
+                option_type=SlashCommandOptionType.STRING,
+                choices=utils.RARITY_CHOICES,
+                required=False
             )
         ]
     )
-    async def plot(self, ctx: Context, item: str) -> None:
+    async def plot(self, ctx: SlashContext,
+                   item: str, span: Optional[int] = None,
+                   rarity: Optional[str] = None) -> None:
+        await ctx.defer()
         item_id = database.guess_item_id(item)
         try:
-            utils.plot_ah_price(item_id, span=DEFAULT_PLOT_SPAN)
+            utils.plot_ah_price(item_id, span, rarity)
         except ValueError:
             await ctx.send('Not enough values for the given item!')
             return
