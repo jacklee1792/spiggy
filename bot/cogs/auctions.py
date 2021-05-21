@@ -5,13 +5,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from discord import File, TextChannel
-from discord.ext import commands, tasks
+from discord.ext import tasks
 from discord.ext.commands import Bot, Cog
 from discord.ext.commands.context import Context
+from discord_slash import SlashCommandOptionType
+from discord_slash.utils.manage_commands import create_option
 
 from backend.controllers.ahcontrol import AuctionHouseObserver
 from backend.database import database
 from bot import utils
+from bot.utils import cog_slash
 from models.auction import ActiveAuction
 
 
@@ -24,7 +27,7 @@ PRICE_POINT_SPAN = _cfg['AH Caching'].getfloat('PricePointSpan')
 DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
 
 
-class AuctionHouseCog(Cog):
+class AuctionsCog(Cog):
     """
     Bot cog which handles auction commands.
     """
@@ -52,9 +55,20 @@ class AuctionHouseCog(Cog):
 
         self.check_new_auctions.start()
 
-    @commands.command()
-    async def lbin(self, ctx: Context, query: str) -> None:
-        item_id = database.guess_item_id(query)
+    @cog_slash(
+        name='lbin',
+        description='Get lowest BIN prices on the given item',
+        options=[
+            create_option(
+                name='item',
+                description='The name of the item to check',
+                option_type=SlashCommandOptionType.STRING,
+                required=True
+            )
+        ]
+    )
+    async def lbin(self, ctx: Context, item: str) -> None:
+        item_id = database.guess_item_id(item)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
             return
@@ -68,9 +82,20 @@ class AuctionHouseCog(Cog):
             for match in matches:
                 await ctx.send(f'{match.seller.username} {match.price}')
 
-    @commands.command()
-    async def endsoon(self, ctx: Context, query: str) -> None:
-        item_id = database.guess_item_id(query)
+    @cog_slash(
+        name='endsoon',
+        description='Get auctions which are ending soon for a given item',
+        options=[
+            create_option(
+                name='item',
+                description='The name of the item to check',
+                option_type=SlashCommandOptionType.STRING,
+                required=True
+            )
+        ]
+    )
+    async def endsoon(self, ctx: Context, item: str) -> None:
+        item_id = database.guess_item_id(item)
         if not self.obs.active_auctions:
             await ctx.send('No active auctions cached!')
             return
@@ -86,9 +111,20 @@ class AuctionHouseCog(Cog):
                 await ctx.send(f'{match.seller.username} {match.price} '
                                f'(ending in {dt})')
 
-    @commands.command()
-    async def plot(self, ctx: Context, query: str) -> None:
-        item_id = database.guess_item_id(query)
+    @cog_slash(
+        name='plot',
+        description='Plot the price of a given item',
+        options=[
+            create_option(
+                name='item',
+                description='The name of the item to check',
+                option_type=SlashCommandOptionType.STRING,
+                required=True
+            )
+        ]
+    )
+    async def plot(self, ctx: Context, item: str) -> None:
+        item_id = database.guess_item_id(item)
         try:
             utils.plot_ah_price(item_id, span=DEFAULT_PLOT_SPAN)
         except ValueError:
@@ -161,4 +197,4 @@ class AuctionHouseCog(Cog):
 
 
 def setup(bot: Bot):
-    bot.add_cog(AuctionHouseCog(bot))
+    bot.add_cog(AuctionsCog(bot))

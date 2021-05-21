@@ -1,13 +1,22 @@
+import functools
+import inspect
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Any, Callable, Coroutine, List, Optional, Union
 
+import discord
 import numpy as np
+from discord.ext.commands import Cog
+from discord_slash import SlashContext, cog_ext
 from matplotlib import colors as mcolors, dates as mdates, pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.ticker import FuncFormatter
 
 from backend.database import database
+from bot import embeds
+
+# TODO Read from config
+SLASH_COMMAND_GUILDS = None
 
 
 def format_number(price: float) -> str:
@@ -132,3 +141,66 @@ def plot_ah_price(item_id: str, span: int) -> None:
     plot_with_gradient(xs, ys)
     here = Path(__file__).parent
     plt.savefig(here / 'plot.png')
+
+
+def check_admin_role(ctx: SlashContext) -> bool:
+    role = discord.utils.find(lambda r: r.name == 'Admin', ctx.guild.roles)
+    return role in ctx.author.roles
+
+
+def cog_slash(subcommand: bool = False,
+              options: Optional[List[Any]] = None,
+              checks: Optional[List[Union[Callable, Coroutine]]] = None,
+              **slash_kwargs: Any) -> Callable:
+    """
+    Wrapper for the cog_ext decorators which automatically fills
+    in the guild_ids field from the config file. Allows for convenient switching
+    between global and guild-local slash commands.
+
+    The decorator also supports adding check functions through the check
+    parameter.
+
+    :param subcommand: Whether or not the command defines a subcommand.
+    :param options: The slash command options.
+    :param checks: The checks to be run before the command is executed. Each
+    check should be a function or coroutine which accepts a SlashContext
+    parameter and returns a boolean describing whether or not the check was OK.
+    :param slash_kwargs: The keyword arguments to be passed to the
+    cog_ext.cog_slash decorator.
+    :return: None.
+    """
+    if options is None:
+        # Don't keep options as None because cog_ext.cog_slash will introspect
+        # on the wrapper
+        options = []
+    if checks is None:
+        checks = []
+
+    def decorator(command):
+
+        # Innermost wrapper which runs the checks
+        async def wrapper(self: Cog,
+                          ctx: SlashContext, *args, **kwargs) -> None:
+            for check in checks:
+                if inspect.iscoroutinefunction(check):
+                    ok = await check(ctx)
+                else:
+                    ok = check(ctx)
+                if not ok:
+                    await ctx.send(embed=embeds.NO_PERMISSION)
+                    return
+            await command(self, ctx, *args, **kwargs)
+
+        # Decorate the wrapper with the appropriate cog_ext decorator
+        if subcommand:
+            wrapper = cog_ext.cog_subcommand(guild_ids=SLASH_COMMAND_GUILDS,
+                                             options=options,
+                                             **slash_kwargs)(wrapper)
+        else:
+            wrapper = cog_ext.cog_slash(guild_ids=SLASH_COMMAND_GUILDS,
+                                        options=options,
+                                        **slash_kwargs)(wrapper)
+
+        # Decorate again with functools.wraps
+        return functools.wraps(command)(wrapper)
+    return decorator

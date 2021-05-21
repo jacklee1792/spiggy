@@ -1,9 +1,11 @@
 from typing import Optional
 
 from discord import TextChannel
-from discord.ext import commands
 from discord.ext.commands import Bot, Cog
-from discord.ext.commands.context import Context
+from discord_slash import SlashContext
+
+from bot import utils
+from bot.utils import cog_slash
 
 
 class MetaCog(Cog):
@@ -17,21 +19,36 @@ class MetaCog(Cog):
         self.bot = bot
         self.dump_channel = None
 
-    @commands.command()
-    async def ping(self, ctx: Context):
+    @cog_slash(
+        name='ping',
+        description='Ping the bot'
+    )
+    async def ping(self, ctx: SlashContext):
         await ctx.send('Pong!')
 
-    @commands.command()
-    async def setdump(self, ctx: Context):
+    @cog_slash(
+        subcommand=True,
+        base='dump',
+        name='attach',
+        description='Set the dump channel',
+        checks=[
+            utils.check_admin_role
+        ])
+    async def dump_attach(self, ctx: SlashContext):
         self.dump_channel = ctx.channel
         await ctx.send('OK, dump set to this channel.')
 
-    @commands.command()
-    async def pingdump(self, ctx: Context):
-        if self.dump_channel is None:
-            await ctx.send('No dump channel set!')
-        else:
-            await self.dump_channel.send('Pong!')
+    @cog_slash(
+        subcommand=True,
+        base='dump',
+        name='detach',
+        description='Detach from the dump channel',
+        checks=[
+            utils.check_admin_role
+        ])
+    async def dump_detach(self, ctx: SlashContext):
+        self.dump_channel = None
+        await ctx.send('Done!')
 
 
 def setup(bot: Bot):
