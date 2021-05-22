@@ -168,7 +168,8 @@ class AuctionHouseObserver:
             batch_start = 0
             while batch_start < len(responses):
                 batch_end = batch_start + self.batch_size
-                ext = list(map(ActiveAuction, responses[batch_start:batch_end]))
+                ext = [ActiveAuction(d)
+                       for d in responses[batch_start:batch_end]]
                 active_auctions.extend(ext)
                 batch_start = batch_end
                 await asyncio.sleep(BATCH_DELAY)
@@ -178,6 +179,12 @@ class AuctionHouseObserver:
             async with session.get(ENDED_AUCTIONS_ENDPOINT) as res:
                 res = await res.json()
         ended_auctions = list(map(EndedAuction, res['auctions']))
+
+        # Clean up the auctions with malformed items
+        active_auctions = [auction for auction in active_auctions if
+                           auction.item is not None]
+        ended_auctions = [auction for auction in ended_auctions if
+                          auction.item is not None]
 
         print(f'[{datetime.now()}] OK done casting to models')
 

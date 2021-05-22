@@ -54,15 +54,26 @@ class GenericItem(Item):
         self.reforge = nbtparse.extract_reforge(nbt)
         self.dungeon_stars = nbtparse.extract_dungeon_stars(nbt)
 
+        # Make sure item attributes are as expected
+        if not all(ord(c) < 128 for c in self.base_name) \
+                or self.stack_size < 1:
+            print(f'Malformed item found, b64 is {b64}')
+            raise ValueError
 
-def make_item(b64: str) -> Item:
+
+def make_item(b64: str) -> Optional[Item]:
     """
     Factory function which produces the correct subclass of Item from the
     "item_bytes" field as it appears in the Skyblock API.
+
+    Returns none of the given b64 is malformed.
 
     :param b64: The base-64 representation of the item bytes.
     :return: A corresponding Item subclass instance.
     """
 
     # For now, just treat everything as a GenericItem
-    return GenericItem(b64)
+    try:
+        return GenericItem(b64)
+    except ValueError:
+        return None

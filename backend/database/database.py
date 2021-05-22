@@ -117,7 +117,7 @@ def save_name_links(items: List[Item]) -> None:
     :param items: The items to be recorded into the database.
     :return: None.
     """
-    sql = 'INSERT OR IGNORE INTO name_link VALUES (?, ?)'
+    sql = 'INSERT OR REPLACE INTO name_link VALUES (?, ?)'
     for item in items:
         _conn.execute(sql, (item.item_id, item.base_name))
 

@@ -23,7 +23,7 @@ def main() -> None:
     config.read(config_folder / 'spiggy.ini')
 
     # Initialize bot/slash command handler
-    bot = commands.Bot(command_prefix=None,
+    bot = commands.Bot(command_prefix='???',
                        intents=discord.Intents.default())
     SlashCommand(bot, sync_commands=True, sync_on_cog_reload=True)
 

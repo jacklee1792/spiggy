@@ -97,18 +97,20 @@ BOOK_2_SAMPLE = 'H4sIAAAAAAAAAE1STW/aQBAdIGkAtUTppVXVw/TrVhoIEEJuQKgSJRipCY16' \
                 'yuSXzEE2ayCa0lQ4P04bs1mrzY1qcFr3q83mSaN61qhx9XTm+y1uU8enQDRJ' \
                 'P1tHUQyV1vHZ8Ukdm+fNGnaHAHl4drF972xE/wKV0BmJ0QIAAA=='
 
-RUNE_SAMPLE = 'H4sIAAAAAAAAAD1SwW7aQBAdSNKA26qHqveN1CuS7QCBYzCEOMJ2SgjGvlRre4' \
-              'xNFpva64D5gN567ifwA/0CPqUfUnVNpe5t3pt582Z2JIAm1GIJAGp1qMdB7UcN' \
-              'LrS0SHhNgjNOl004x8SPoHpn0LyPA7xjdJmL8I8E0tNLwZi1TTBrQF0P4HPY9n' \
-              '3Vw26r3+8orWvqtVu9vqK2Qrkt90Llpoudjqh7zNINZjzGvAkNjjteZJifbDTg' \
-              'Yk5ZgfALywfZXURysHhgfql3RTx7kpmlrzY3ejIvPU3v6mvB3w/2Vtx7Dcbzdn' \
-              'A/L92FUXg2K1zbLB3blSfrDgu0/n+tifq8NVbOtbm/VQx1ujJnX0pzOH9xbEN2' \
-              'VkbHsr/szPFd5M70nWs/Xxv2aGvMBrE7ZCtjb6jOPmKOOmcV7o4fmDV2FGusx+' \
-              'FC6YsJJLgM4nzDaCl2N0kzbAjwLXw8HnpT/FbEYlDC8BUZUUASoI10kybVQq+O' \
-              'hxstQ8qRUOKxNA0IhiH6nGwjTEiZFvBepLzEjJF16uVXooYI4HazYSXhUZyTrE' \
-              'iQ8JRs/4mSNDuphkUu4G0qqCXyCDNCuShAMi2S2Id3IuURA8w5ZZXop+MhPB6Y' \
-              'ZhmGZRLNejJGM11rwLlJ11ix/u+f38ng5HBaddR1Xcz9YbTjGb3lPIu9glf/eV' \
-              'H5yc/gcjCxrOFX9XREjerQ4Hz6bI4A6vBmSNd0iYKAvw5qnm2PAgAA'
+RUNE_SAMPLE = 'H4sIAAAAAAAAAF1SzW7TQBCeJC04EQIJDnBAYhG9pnLSJq6PrpO2rmI7cp2f+r' \
+              'axt8nGazvY67bmAbhx5hHyAjyBH4UHQey2Egfmspr5Zr6d79N0ANrQoB0AaDSh' \
+              'SaPGjwYcmlmZ8kYHWhyv23BA0nADMlrQvqIRuWB4XYj0Twc6N3HJmPuQklyBph' \
+              'XBkaoN9GFf07vaUFW7J9FA7+raqdbV1bsV0dRBqA96Ym6aZzuSc0qKNiicPPIy' \
+              'J8XTGgoczjErCfwi1bUaLDdqtLxmYWUNRe7fqMy1tjvNSufVyrSGViLwq/NvLj' \
+              '27jy7np9HVvAqWdrlasDJYONXtIlAnyYBFpv6Pa9Kfx/YoVp2+rdqXHnO24am7' \
+              'uO3f9oONvbVP7MuLOBhdb+yRt3X9dc9ZzFRnEcSBH6vuyImd7axn+8ajyOVbua' \
+              'MNC/w1vVv2dKGgAy8jWuwYroR3kywniii+hnf1/swjX0sqhCJG7glDA1BE8TzL' \
+              'uLTzQ73XArxDOMyzokB8QxDDaVR8FtgXgRm7HatEmRYoL1OCeIZWchRlOborCw' \
+              'IfRRN/yASwJmI6R5g/sXhlSkN4JdApiUjBMZOU7+s9rvds5piubbsOMt0be+xb' \
+              'pgTO6n3S/T/gSDCIIV9uQJ8XpJwkqMpK9EAZQ+LbY/j03GUyGsZPPfU+nLqeb0' \
+              'zQhWfYY8kfGufufCy6pIgwS1Y0JccKHDg4IfC23pPfP78j6YUnhVqW8PTN+JHn' \
+              '2OA8p6uSy1s5lC4ULWgFxlToaYIiDxgOvJkzlumLEU7wmoirhb8i3vRh5wIAAA' \
+              '=='
 
 
 class TestParsing(unittest.TestCase):
@@ -189,9 +191,9 @@ class TestParsing(unittest.TestCase):
         identifiers = nbtparse.extract_identifiers(nbt)
         rune = nbtparse.extract_rune(nbt)
 
-        self.assertEqual(identifiers, ('BLOOD_2_RUNE_3', 'Blood Rune 3',
-                                       '◆ Blood Rune III'))
-        self.assertEqual(rune, ('BLOOD_2', 3))
+        self.assertEqual(identifiers, ('ZAP_RUNE_2', 'Zap Rune 2',
+                                       '◆ Zap Rune II'))
+        self.assertEqual(rune, ('ZAP', 2))
 
 
 if __name__ == '__main__':

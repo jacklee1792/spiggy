@@ -240,7 +240,7 @@ def extract_generic_base_name(nbt: NbtTag) -> str:
     :return: The name of the item with extra symbols removed and reforge
     dropped, if applicable.
     """
-    name = re.sub('[✪⚚✦◆™]', '', extract_generic_display_name(nbt)).strip()
+    name = re.sub('[✪⚚✦◆™©�]', '', extract_generic_display_name(nbt)).strip()
     # No reforge, we are done
     if not extract_reforge(nbt):
         return name
@@ -297,6 +297,12 @@ def extract_identifiers(nbt: NbtTag) -> Tuple[str, str, str]:
         base_name = item_id.title().replace('_', ' ')
         display_name = extract_generic_display_name(nbt)
 
+    # Specialization for cake souls
+    elif api_id == 'CAKE_SOUL':
+        item_id = 'CAKE_SOUL'
+        base_name = 'Cake Soul'
+        display_name = extract_generic_display_name(nbt)
+
     # General case
     else:
         # Drop the fragment prefix
@@ -324,9 +330,26 @@ def extract_rarity(nbt: NbtTag) -> str:
     :param nbt: The NbtTag to be read.
     :return: The rarity of the item.
     """
-    last_lore_line = nbt['i'][0]['tag']['display']['Lore'][-1].value
-    words = _without_nbt_style(last_lore_line).split()
-    return words[0]
+    try:
+        lore = nbt['i'][0]['tag']['display']['Lore']
+        rarity_line = nbt['i'][0]['tag']['display']['Lore'][-1].value
+
+        # Some runes have a weird footer in their lore
+        if extract_api_id(nbt) == 'RUNE':
+            for tag in lore:
+                line = tag.value
+                if _without_nbt_style(line).endswith('COSMETIC'):
+                    rarity_line = line
+
+        words = _without_nbt_style(rarity_line).split()
+        # Account for 'VERY_SPECIAL' case
+        rarity = words[0] if words[0] != 'VERY' else 'VERY_SPECIAL'
+        known_rarities = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY',
+                          'MYTHIC', 'SUPREME', 'SPECIAL', 'VERY_SPECIAL']
+        return rarity if rarity in known_rarities else 'UNKNOWN'
+    except KeyError:
+        # Some weird items don't have lore for some reason
+        raise ValueError
 
 
 def extract_rune(nbt: NbtTag) -> Optional[Tuple[str, int]]:

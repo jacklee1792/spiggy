@@ -34,7 +34,8 @@ else:
 
 RARITY_CHOICES = [
     create_choice(name=rarity, value=rarity.upper()) for rarity in
-    ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Mythic', 'Special']
+    ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Supreme', 'Mythic',
+     'Special', 'Unknown']
 ]
 RARITY_CHOICES.append(create_choice(name='Very Special', value='VERY_SPECIAL'))
 
