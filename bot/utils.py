@@ -17,21 +17,26 @@ from matplotlib.ticker import FuncFormatter
 from backend.database import database
 from bot import embeds
 
-# TODO Read from config
-SLASH_COMMAND_GUILDS = None
 
 _here = Path(__file__).parent
 _cfg = ConfigParser()
 _cfg.read(_here.parent / 'config/spiggy.ini')
 
 DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
+SLASH_COMMAND_GUILDS = _cfg['Bot'].get('SlashCommandGuilds')
+
+if SLASH_COMMAND_GUILDS == '':
+    # Register slash commands globally
+    SLASH_COMMANDS_GUILDS = None
+else:
+    # Register slash commands in the given guilds
+    SLASH_COMMAND_GUILDS = [int(x) for x in SLASH_COMMAND_GUILDS.split(',')]
 
 RARITY_CHOICES = [
     create_choice(name=rarity, value=rarity.upper()) for rarity in
     ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Mythic', 'Special']
-] + [
-    create_choice(name='Very Special', value='VERY_SPECIAL')
 ]
+RARITY_CHOICES.append(create_choice(name='Very Special', value='VERY_SPECIAL'))
 
 
 def format_number(price: float) -> str:
