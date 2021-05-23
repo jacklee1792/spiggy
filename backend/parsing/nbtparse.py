@@ -7,6 +7,8 @@ import struct
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
+from backend import constants
+
 _here = Path(__file__).parent
 
 with open(_here/'exceptions/enchants.json') as f:
@@ -344,9 +346,7 @@ def extract_rarity(nbt: NbtTag) -> str:
         words = _without_nbt_style(rarity_line).split()
         # Account for 'VERY_SPECIAL' case
         rarity = words[0] if words[0] != 'VERY' else 'VERY_SPECIAL'
-        known_rarities = ['COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY',
-                          'MYTHIC', 'SUPREME', 'SPECIAL', 'VERY_SPECIAL']
-        return rarity if rarity in known_rarities else 'UNKNOWN'
+        return rarity if rarity in constants.RARITIES.keys() else 'UNKNOWN'
     except KeyError:
         # Some weird items don't have lore for some reason
         raise ValueError

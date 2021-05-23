@@ -8,8 +8,9 @@ from discord import File, TextChannel
 from discord.ext import tasks
 from discord.ext.commands import Bot, Cog
 from discord_slash import SlashCommandOptionType, SlashContext
-from discord_slash.utils.manage_commands import create_option
+from discord_slash.utils.manage_commands import create_choice, create_option
 
+from backend import constants
 from backend.controllers.ahcontrol import AuctionHouseObserver
 from backend.database import database
 from bot import utils
@@ -129,7 +130,8 @@ class AuctionsCog(Cog):
                 name='rarity',
                 description='The rarity of the item to be plotted',
                 option_type=SlashCommandOptionType.STRING,
-                choices=utils.RARITY_CHOICES,
+                choices=[create_choice(name=value, value=key) for
+                         key, value in constants.RARITIES.items()],
                 required=False
             )
         ]

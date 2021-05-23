@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple, Callable
 
 from fuzzywuzzy import fuzz, process
 
+from backend import constants
 from models.item import Item
 
 
@@ -102,10 +103,21 @@ def guess_rarity(item_id: str) -> Optional[str]:
     :return: The most predominant rarity of the given item_id, if it exists.
     """
     sql = 'SELECT rarity, occurrences FROM price_history WHERE item_id = ?'
-    counts = defaultdict(int)
-    for rarity, occurrences in _conn.execute(sql, (item_id,)).fetchall():
-        counts[rarity] += occurrences
-    return max(counts, key=counts.get) if len(counts) else None
+    results = _conn.execute(sql, (item_id,)).fetchall()
+    # Take the most common rarity for pets
+    if item_id.endswith('_PET'):
+        counts = defaultdict(int)
+        for rarity, occurrences in results:
+            counts[rarity] += occurrences
+        return max(counts, key=counts.get) if len(counts) else None
+    # Take the lowest rarity for other items
+    else:
+        rarities = [result[0] for result in results]
+
+        def rarity_index(r):
+            return list(constants.RARITIES.keys()).index(r)
+        print(min(rarities, key=rarity_index))
+        return min(rarities, key=rarity_index)
 
 
 @db_write
