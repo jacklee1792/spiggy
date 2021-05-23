@@ -42,6 +42,10 @@ _conn.execute(
 )
 
 
+def _as_datetime(s: str) -> datetime:
+    return datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+
+
 def db_write(func: Callable) -> Callable:
     """
     Wrapper which ensures that the config allows writing to the database before
@@ -89,9 +93,7 @@ def get_historical_price(item_id: str, rarity: str, days: int) \
     date_constraint = datetime.now() - timedelta(days=days)
     results = _conn.execute(sql, (item_id, rarity, date_constraint)).fetchall()
 
-    def as_datetime(s: str) -> datetime:
-        return datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
-    return [(as_datetime(dt), price) for dt, price in results]
+    return [(_as_datetime(dt), price) for dt, price in results]
 
 
 def guess_rarity(item_id: str) -> Optional[str]:
@@ -104,19 +106,22 @@ def guess_rarity(item_id: str) -> Optional[str]:
     """
     sql = 'SELECT rarity, occurrences FROM price_history WHERE item_id = ?'
     results = _conn.execute(sql, (item_id,)).fetchall()
+
+    if not len(results):
+        return None
+
     # Take the most common rarity for pets
     if item_id.endswith('_PET'):
         counts = defaultdict(int)
         for rarity, occurrences in results:
             counts[rarity] += occurrences
-        return max(counts, key=counts.get) if len(counts) else None
+        return max(counts, key=counts.get)
     # Take the lowest rarity for other items
     else:
         rarities = [result[0] for result in results]
 
         def rarity_index(r):
             return list(constants.RARITIES.keys()).index(r)
-        print(min(rarities, key=rarity_index))
         return min(rarities, key=rarity_index)
 
 
@@ -147,3 +152,32 @@ def guess_item_id(base_name: str) -> str:
     base_name_match = process.extractOne(base_name, choices)[0][0]
     sql2 = 'SELECT item_id FROM name_link WHERE base_name = ?'
     return _conn.execute(sql2, (base_name_match,)).fetchone()[0]
+
+
+def get_base_name(item_id: str) -> Optional[str]:
+    """
+    Given an item ID, try to find the corresponding base name.
+
+    :param item_id: The item ID to be checked.
+    :return: The corresponding base name, if the item ID exists in the name
+    link table.
+    """
+    sql = 'SELECT base_name FROM name_link WHERE item_id = ?'
+    match = _conn.execute(sql, (item_id,)).fetchone()
+    return match[0] if match is not None else None
+
+
+def most_recent_timestamp(item_id: str, rarity: str) -> Optional[datetime]:
+    """
+    Get the datetime of the last recorded price point for the given
+    item ID, rarity pair.
+
+    :param item_id: The item ID of the item to be checked.
+    :param rarity: The rarity of the item to be checked.
+    :return: The most recent timestamp, or None if there are no records.
+    """
+    sql = 'SELECT timestamp FROM price_history' \
+          ' WHERE item_id = ? AND rarity = ?' \
+          ' ORDER BY timestamp DESC LIMIT 1'
+    result = _conn.execute(sql, (item_id, rarity)).fetchone()
+    return _as_datetime(result[0]) if result is not None else None

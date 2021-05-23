@@ -28,8 +28,8 @@ def main() -> None:
     SlashCommand(bot, sync_commands=True, sync_on_cog_reload=True)
 
     # Load extensions
-    bot.load_extension('cogs.meta')
-    bot.load_extension('cogs.auctions')
+    bot.load_extension('cogs.metacog')
+    bot.load_extension('cogs.auctionscog')
 
     # Load token, run bot
     dotenv.load_dotenv(dotenv_path=config_folder / '.env')

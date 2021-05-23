@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from discord import File, TextChannel
+import arrow
+from discord import Embed, File, TextChannel
 from discord.ext import tasks
 from discord.ext.commands import Bot, Cog
 from discord_slash import SlashCommandOptionType, SlashContext
@@ -13,7 +14,7 @@ from discord_slash.utils.manage_commands import create_choice, create_option
 from backend import constants
 from backend.controllers.ahcontrol import AuctionHouseObserver
 from backend.database import database
-from bot import utils
+from bot import embeds, utils
 from bot.utils import cog_slash
 from models.auction import ActiveAuction
 
@@ -141,13 +142,28 @@ class AuctionsCog(Cog):
                    rarity: Optional[str] = None) -> None:
         await ctx.defer()
         item_id = database.guess_item_id(item)
+        base_name = database.get_base_name(item_id)
+        if rarity is None:
+            rarity = database.guess_rarity(item_id)
+
+        embed = Embed()
+        embed.title = f'Historical Lowest BIN for {base_name}'
         try:
-            utils.plot_ah_price(item_id, span, rarity)
+            utils.plot_ah_price(item_id, rarity, span)
         except ValueError:
-            await ctx.send('Not enough values for the given item!')
+            embed.description = "I don't have enough information about that " \
+                                "item :frowning:"
+            embed.colour = embeds.FAIL_COLOUR
+            await ctx.send(embed=embed)
             return
-        plot_loc = Path(__file__).parent.parent / 'plot.png'
-        await ctx.send(file=File(plot_loc, filename='plot.png'))
+
+        embed.colour = embeds.OK_COLOUR
+        file = File(Path(__file__).parent.parent / 'plot.png')
+        timestamp = arrow.get(database.most_recent_timestamp(item_id, rarity))
+        embed \
+            .set_image(url='attachment://plot.png') \
+            .set_footer(text=f'Last updated {timestamp.humanize()}')
+        await ctx.send(file=file, embed=embed)
 
     def dump_channel(self) -> Optional[TextChannel]:
         """
