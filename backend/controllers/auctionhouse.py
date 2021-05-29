@@ -32,7 +32,7 @@ class UnexpectedUpdateError(Exception):
     pass
 
 
-class AuctionHouseObserver:
+class AuctionHouse:
     """
     This class wraps some of the operations associated with querying the
     Skyblock API. It stores the most recent auctions related data as

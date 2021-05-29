@@ -12,7 +12,7 @@ from discord_slash import SlashCommandOptionType, SlashContext
 from discord_slash.utils.manage_commands import create_choice, create_option
 
 from backend import constants
-from backend.controllers.ahcontrol import AuctionHouseObserver
+from backend.controllers.auctionhouse import AuctionHouse
 from backend.database import database
 from bot import embeds, utils
 from bot.utils import cog_slash
@@ -32,7 +32,7 @@ class AuctionsCog(Cog):
     Bot cog which handles auction commands.
     """
     bot: Bot
-    obs: AuctionHouseObserver
+    obs: AuctionHouse
     lbin_stats: Dict[Tuple[str, str], List[Tuple[float, int]]]
     data_points: int
 
@@ -43,7 +43,7 @@ class AuctionsCog(Cog):
         :param bot: The bot object which holds this cog.
         """
         self.bot = bot
-        self.obs = AuctionHouseObserver()
+        self.obs = AuctionHouse()
         self.lbin_stats = defaultdict(list)
         self.data_points = 0
 
