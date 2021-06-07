@@ -1,9 +1,11 @@
 import functools
 import inspect
+import math
+import statistics
 from configparser import ConfigParser
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Coroutine, List, Optional, Union
+from typing import Any, Callable, Coroutine, List, Optional, Tuple, Union
 
 import discord
 import numpy as np
@@ -21,7 +23,6 @@ _here = Path(__file__).parent
 _cfg = ConfigParser()
 _cfg.read(_here.parent / 'config/spiggy.ini')
 
-DEFAULT_PLOT_SPAN = _cfg['Plotting'].getfloat('DefaultPlotSpan')
 SLASH_COMMAND_GUILDS = _cfg['Bot'].get('SlashCommandGuilds')
 
 if SLASH_COMMAND_GUILDS == '':
@@ -104,8 +105,28 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
     plt.ylim(y_min - y_margin, y_max + y_margin)
 
 
+def smoothen(xs: List[Any], ys: List[float]) -> Tuple[List[Any], List[float]]:
+    """
+    Reduce to ~100 data points and apply smoothing.
+
+    :param xs: The list of x-values.
+    :param ys: The list of y-values to have the filter applied to.
+    :return: The new x and y values.
+    """
+    n = len(xs)
+    window_size = math.ceil(n / 100)
+    new_xs, new_ys = [], []
+    for window_start in range(0, n, window_size):
+        window_end = window_start + window_size
+        new_x = xs[window_start]
+        new_y = statistics.median(ys[window_start:window_end])
+        new_xs.append(new_x)
+        new_ys.append(new_y)
+    return new_xs, new_ys
+
+
 def plot_ah_price(item_id: str, rarity: str,
-                  span: Optional[int]) -> None:
+                  span: timedelta) -> None:
     """
     Plot the historical price of an item and store it in plot.png.
 
@@ -114,13 +135,9 @@ def plot_ah_price(item_id: str, rarity: str,
     :param span: The number of previous days to plot.
     :return: None.
     """
-    if span is None:
-        span = DEFAULT_PLOT_SPAN
-
-    # Make sure the span doesn't break anything
-    span = max(0, min(span, 9999))
-    results = database.get_historical_price(item_id, rarity, span)
+    results = database.get_lbin_history(item_id, rarity, span)
     xs, ys = zip(*results)
+    xs, ys = smoothen(xs, ys)
 
     # Theme
     plt.style.use('seaborn-dark')

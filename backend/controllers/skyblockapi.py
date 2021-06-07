@@ -4,26 +4,27 @@ import asyncio
 import functools
 import itertools
 import logging
+import math
 from collections import deque
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import requests
 from aiohttp import ClientSession
 
-from backend.exceptions import MalformedResponseError, ResponseCodeError, \
-    UnexpectedUpdateError
+from backend.exceptions import ResponseCodeError, UnexpectedUpdateError
 
 
 _here = Path(__file__).parent
 _cfg = ConfigParser()
 _cfg.read(_here.parent.parent / 'config/spiggy.ini')
 
-CACHE_MIN_DELAY = _cfg['AH Caching'].getfloat('CacheMinDelay')
-CACHE_MAX_DELAY = _cfg['AH Caching'].getfloat('CacheMaxDelay')
+AA_IDEAL_DELAY = _cfg['Active Auctions'].getfloat('IdealDelay')
+EA_IDEAL_DELAY = _cfg['Ended Auctions'].getfloat('IdealDelay')
+BZ_IDEAL_DELAY = _cfg['Bazaar'].getfloat('IdealDelay')
 
 
 def key_info_url(key: str) -> str:
@@ -45,6 +46,7 @@ def active_auctions_url(page: int) -> str:
     :return: The corresponding URL.
     """
     return f'https://api.hypixel.net/skyblock/auctions?page={page}'
+
 
 ENDED_AUCTIONS_URL = 'https://api.hypixel.net/skyblock/auctions_ended'
 BAZAAR_URL = 'https://api.hypixel.net/skyblock/bazaar'
@@ -81,6 +83,9 @@ class SkyblockAPI:
     Async wrapper for the Skyblock API with rate-limiting. Serves JSON in the
     form of dictionaries.
 
+    The class takes all non-200 responses as invalid, and will make a GET
+    attempt every 30 seconds until a 200 response is received.
+
     :ivar _session: The session which is used for HTTPS requests.
     :ivar api_key: The API key to use for requests which require it.
     :ivar key_calls: The timestamps of key-authenticated API calls from the
@@ -102,15 +107,11 @@ class SkyblockAPI:
         self.api_key = api_key
         self.key_calls = deque()
         res = requests.get(key_info_url(key=self.api_key))
-        if res.status_code not in (200, 403):
-            raise ResponseCodeError(res.status_code)
-        try:
-            body = res.json()
-            if not body['success']:
-                raise ValueError('Invalid Hypixel API key')
-            self.limit = body['record']['limit'] - 20
-        except (KeyError, JSONDecodeError):
-            raise MalformedResponseError
+
+        body = res.json()
+        if not body['success']:
+            raise ValueError('Invalid Hypixel API key')
+        self.limit = body['record']['limit'] - 20
 
     async def __aenter__(self) -> SkyblockAPI:
         """
@@ -129,134 +130,119 @@ class SkyblockAPI:
         """
         await self._session.close()
 
-    async def get_active_auctions(
-            self,
-            *args
-    ) -> Tuple[datetime, List[Dict[str, Any]]]:
+    async def get_active_auctions(self) \
+            -> Tuple[datetime, List[Dict[str, Any]]]:
         """
-        Attempts to get active auctions on the given pages, or all pages if no
-        arguments are passed.
+        Get a snapshot of /auctions at the earliest possible "ideal" time.
 
-        :return: Pair containing the timestamp and the list of active auctions.
+        :return: Pair containing the lastUpdated timestamp and the
+        corresponding list of active auctions.
         """
+        logging.debug('Attempting to get active auctions snapshot')
+        page0_last_update: Optional[datetime] = None
 
-        # Coroutine to get expected (total pages, timestamp)
-        async def get_params() -> Tuple[int, datetime]:
-            async with self._session.get(active_auctions_url(page=0)) as res:
-                if res.status != 200:
-                    raise ResponseCodeError(res.status)
-                try:
-                    body = await res.json()
-                    return (
-                        body['totalPages'],
-                        datetime.fromtimestamp(body['lastUpdated'] / 1000)
-                    )
-                except (KeyError, JSONDecodeError):
-                    raise MalformedResponseError
-
-        page_count, expected_time = await get_params()
-        time_lb = expected_time + timedelta(seconds=CACHE_MIN_DELAY)
-        time_ub = expected_time + timedelta(seconds=CACHE_MAX_DELAY)
-        time_now = datetime.now()
-
-        # Already missed the window for this minute
-        if time_now > time_ub:
-            cache_time = time_lb + timedelta(seconds=60)
-            logging.info(f'[API] Too late to cache active auctions for this'
-                         f' minute, waiting until'
-                         f' {cache_time.strftime("%-I:%M:%S %p")}'
-                         f' to invoke cache')
-            await asyncio.sleep((cache_time - time_now).total_seconds())
-            page_count, expected_time = await get_params()
-        # Not yet at the window for this minute, wait until then
-        elif time_now < time_lb:
-            logging.info(f'[API] Not enough time difference to cache active'
-                         f' auctions yet, waiting until'
-                         f' {time_lb.strftime("%-I:%M:%S %p")}'
-                         f' to invoke cache')
-            await asyncio.sleep((time_lb - time_now).total_seconds())
-
-        logging.info(f'[API] Getting {page_count} pages of active auctions'
-                     f' with timestamp'
-                     f' {expected_time.strftime("%-I:%M:%S %p")}')
-
-        # Coroutine to get the "auctions" field of a single page
+        # Coroutine to get a single page and raise an exception if something
+        # goes wrong
         async def get_page(page: int) -> Dict[str, Any]:
             async with self._session.get(active_auctions_url(page=page)) as res:
-                if res.status == 404:
-                    logging.info(f'[API] Failed to get page {page}, got 404 '
-                                 f'response')
-                    raise UnexpectedUpdateError
-                elif res.status != 200:
-                    raise ResponseCodeError(res.status)
-                try:
-                    body = await res.json()
-                    page_time = datetime.fromtimestamp(body['lastUpdated']
-                                                       / 1000)
-                    if page_time != expected_time:
-                        logging.info(f'[API] Failed to get page {page},'
-                                     f' got unexpected time of'
-                                     f' {page_time.strftime("%-I:%M:%S %p")}')
-                        raise UnexpectedUpdateError
-                    return body['auctions']
-                except (KeyError, JSONDecodeError):
-                    raise MalformedResponseError
+                if res.status != 200:
+                    raise ResponseCodeError
+                body = await res.json()
+                last_update = datetime.fromtimestamp(body['lastUpdated'] / 1000)
+                if (page0_last_update is not None
+                        and last_update != page0_last_update):
+                    msg = f'Expected ' \
+                          f'{page0_last_update.strftime("%-I:%M:%S %p")} but ' \
+                          f'got {last_update.strftime("%-I:%M:%S %p")} on ' \
+                          f'page {page}'
+                    raise UnexpectedUpdateError(msg)
+                return body
 
-        # Get all pages
-        page_numbers = list(args) or range(page_count)
-        tasks = (get_page(page) for page in page_numbers)
+        # Get the page count and the page 0 lastUpdated field
         try:
-            results = await asyncio.gather(*tasks)
-            results_chained = list(itertools.chain.from_iterable(results))
-            logging.info(f'[API] OK got {len(results_chained)} active auctions')
-            return expected_time, results_chained
-        except UnexpectedUpdateError:
-            logging.info('[API] FAIL Could not get active auctions, trying'
-                         ' again in 30 seconds')
+            page0 = await get_page(0)
+            page_count = page0['totalPages']
+            page0_last_update = datetime.fromtimestamp(page0['lastUpdated']
+                                                       / 1000)
+        except (ResponseCodeError, UnexpectedUpdateError):
+            logging.exception('FAIL Could not get page 0, will try '
+                              'again in 30 seconds')
             await asyncio.sleep(30)
-            return await self.get_active_auctions(*page_numbers)
+            return await self.get_active_auctions()
+
+        # Wait until ideal time
+        now_time = datetime.now()
+        ideal_time = page0_last_update + timedelta(seconds=AA_IDEAL_DELAY)
+
+        # If ideal time is already passed, try to get the next snapshot
+        if now_time > ideal_time:
+            diff_minutes = (now_time - ideal_time).total_seconds() / 60
+            delta = timedelta(minutes=math.ceil(diff_minutes))
+            page0_last_update += delta
+            ideal_time += delta
+        logging.info(f'Waiting until next ideal time '
+                     f'{ideal_time.strftime("%-I:%M:%S %p")} to capture '
+                     f'snapshot with timestamp '
+                     f'{page0_last_update.strftime("%-I:%M:%S %p")}')
+        await asyncio.sleep((ideal_time - now_time).total_seconds())
+
+        # Get a snapshot
+        try:
+            tasks = (get_page(p) for p in range(page_count))
+            bodies = await asyncio.gather(*tasks)
+            auctions = list(itertools.chain.from_iterable(
+                body['auctions'] for body in bodies
+            ))
+            logging.debug(f'OK got active auctions snapshot with timestamp '
+                          f'{page0_last_update.strftime("%-I:%M:%S %p")}')
+            return page0_last_update, auctions
+        except (ResponseCodeError, UnexpectedUpdateError):
+            logging.exception('FAIL Could not get snapshot, will try '
+                              'for new snapshot in 30 seconds')
+            await asyncio.sleep(30)
+            return await self.get_active_auctions()
 
     async def get_ended_auctions(self) -> Tuple[datetime, List[Dict[str, Any]]]:
         """
-        Get the recently ended auctions.
+        Get the recently ended auctions at the earliest possible "ideal" time.
 
         :return: Pair containing the timestamp and the list of recently ended
         auctions.
         """
-        logging.info('[API] Getting recently ended auctions')
+        logging.debug('Attempting to get ended auctions')
         async with self._session.get(ENDED_AUCTIONS_URL) as res:
             if res.status != 200:
-                raise ResponseCodeError(res.status)
-            try:
-                body = await res.json()
-                last_updated = datetime.fromtimestamp(body['lastUpdated'] /
-                                                      1000)
-                auctions = body['auctions']
-                logging.info(f'[API] OK got {len(auctions)} recently ended'
-                             f' auctions')
-                return last_updated, auctions
-            except (KeyError, JSONDecodeError):
-                raise MalformedResponseError
+                logging.debug('FAIL could not get ended auctions, will try '
+                              'again in 30 seconds')
+                await asyncio.sleep(30)
+                return await self.get_active_auctions()
+            body = await res.json()
+            last_update = datetime.fromtimestamp(body['lastUpdated'] / 1000)
+            auctions = body['auctions']
+            logging.debug(f'OK got ended auctions with timestamp '
+                          f'{last_update.strftime("%-I:%M:%S %p")}')
+            return last_update, auctions
 
-    async def get_bazaar(self) -> Tuple[datetime, Dict[str, Any]]:
+    async def get_bazaar_products(self) -> Tuple[datetime, Dict[str, Any]]:
         """
-        Get data about bazaar products.
+        Get the bazaar products at the earliest possible "ideal" time.
 
-        :return: The JSON response.
+        :return: Pair containing the timestamp and a dict containing bazaar
+        products.
         """
-        logging.info('[API] Getting bazaar items')
+        logging.debug('Attempting to get bazaar products')
         async with self._session.get(BAZAAR_URL) as res:
             if res.status != 200:
-                raise ResponseCodeError(res.status)
-            try:
-                body = await res.json()
-                last_updated = datetime.fromtimestamp(body['lastUpdated'] /
-                                                      1000)
-                products = body['products']
-                logging.info(f'[API] OK got bazaar response')
-                return last_updated, products
-            except (KeyError, JSONDecodeError):
-                raise MalformedResponseError
+                logging.debug('FAIL could not get bazaar products, will try '
+                              'again in 30 seconds')
+                await asyncio.sleep(30)
+                return await self.get_bazaar_products()
+            body = await res.json()
+            last_update = datetime.fromtimestamp(body['lastUpdated'] / 1000)
+            products = body['products']
+            logging.debug(f'OK got bazaar products with timestamp '
+                          f'{last_update.strftime("%-I:%M:%S %p")}')
+            return last_update, products
 
 
 # Something to test the API wrapper with
@@ -270,23 +256,27 @@ if __name__ == '__main__':
     dotenv.load_dotenv(dotenv_path=root / 'config/.env')
     key = os.getenv('HYPIXEL_API_KEY')
 
-    logging.basicConfig(level=logging.INFO,
-                        format='[%(asctime)s] %(levelname)s: %(message)s',
+    logging.basicConfig(level=logging.DEBUG,
+                        format='[%(asctime)s] %(name)s > %(levelname)s: '
+                               '%(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
 
     async def main():
         async with SkyblockAPI(key) as api:
             while True:
-                inp = await aioconsole.ainput('Enter a command: ')
-                if inp == 'ended':
-                    res = await api.get_ended_auctions()
-                    print(str(res)[:100] + '...')
-                elif inp == 'active':
-                    res = await api.get_active_auctions()
-                    print(str(res)[:100] + '...')
-                elif inp == 'bazaar':
-                    res = await api.get_bazaar()
-                    print(str(res)[:100] + '...')
+                inp = (await aioconsole.ainput('Enter a command: ')).split()
+                if inp[0] == 'ended':
+                    t, auctions = await api.get_ended_auctions()
+                    print(f'OK got {len(auctions)} items at {t}')
+                    print(str(auctions)[:100] + '...')
+                elif inp[0] == 'active':
+                    t, auctions = await api.get_active_auctions()
+                    print(f'OK got {len(auctions)} items at {t}')
+                    print(str(auctions)[:100] + '...')
+                elif inp[0] == 'bazaar':
+                    t, products = await api.get_bazaar_products()
+                    print(f'OK got {len(products)} products at {t}')
+                    print(str(products)[:100] + '...')
                 await asyncio.sleep(3)
 
     asyncio.run(main())

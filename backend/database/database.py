@@ -1,49 +1,27 @@
 import functools
 import sqlite3
-from collections import defaultdict
+import statistics
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 
-from fuzzywuzzy import fuzz, process
+from fuzzywuzzy import process
 
 from backend import constants
-from models.item import Item
+from models.auction import ActiveAuction
 
 
 _here = Path(__file__).parent
 _cfg = ConfigParser()
 _cfg.read(_here.parent.parent / 'config/spiggy.ini')
 
+
+_conn = sqlite3.connect(_here/'database.db',
+                        detect_types=sqlite3.PARSE_DECLTYPES)
+
+
 WRITE_TO_DATABASE = _cfg['Database'].getboolean('WriteToDatabase')
-
-_conn = sqlite3.connect(_here/'database.db')
-_conn.execute(
-    'CREATE TABLE IF NOT EXISTS price_history ('
-    '  timestamp      DATETIME DEFAULT CURRENT_TIMESTAMP,'
-    '  item_id        TEXT,'
-    '  rarity         TEXT,'
-    '  price          REAL,'
-    '  occurrences    INTEGER'
-    ')'
-)
-
-_conn.execute(
-    'CREATE TABLE IF NOT EXISTS name_link ('
-    '  item_id        TEXT,'
-    '  basename       TEXT'
-    ')'
-)
-
-_conn.execute(
-    'CREATE UNIQUE INDEX IF NOT EXISTS name_idx '
-    'ON name_link(item_id, base_name)'
-)
-
-
-def _as_datetime(s: str) -> datetime:
-    return datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
 
 
 def db_write(func: Callable) -> Callable:
@@ -62,122 +40,203 @@ def db_write(func: Callable) -> Callable:
     return wrapper
 
 
-@db_write
-def save_prices(d: Dict[Tuple[str, str], Tuple[float, int]]) -> None:
-    """
-    Given a dict which maps a (item_id, rarity) pairs to (price, occurrences)
-    pairs, record it in the database.
+# Table which tracks the lowest BIN history of a (item ID, rarity) pair
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS lbin_history ('
+    '  timestamp      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,'
+    '  item_id        TEXT,'
+    '  rarity         TEXT,'
+    '  price          REAL'
+    ')'
+)
+_conn.execute(
+    'CREATE INDEX IF NOT EXISTS lbin_history_idx '
+    'ON lbin_history(item_id, rarity)'
+)
 
-    :param d: The calculated prices to be stored.
+
+@db_write
+def save_lbin_history(buffer: Dict[Tuple[str, str], List[float]]) -> None:
+    """
+    Given a dict which maps (item_id, rarity) pairs to prices, record it in the
+    database.
+
+    :param buffer: The lowest BIN buffer to be recorded.
     :return: None.
     """
-    sql = 'INSERT INTO price_history VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)'
-    for (item_id, rarity), (price, occurrences) in d.items():
-        _conn.execute(sql, (item_id, rarity, price, occurrences))
+    sql = 'INSERT INTO lbin_history VALUES (?, ?, ?, ?)'
+    now = datetime.now()
+    for (item_id, rarity), prices in buffer.items():
+        _conn.execute(sql, (now, item_id, rarity, statistics.mean(prices)))
 
 
-def get_historical_price(item_id: str, rarity: str, days: int) \
-        -> List[Tuple[datetime, float]]:
+def get_lbin_history(item_id: str, rarity: str,
+                     span: timedelta) -> List[Tuple[datetime, float]]:
     """
-    For a given (item_id, rarity) pair, return the historical price of the item
-    as a list of (datetime, price) pairs.
-    :param item_id: The item ID of interest.
-    :param rarity: The rarity of interest.
-    :param days: The number of days worth of data to retrieve.
-    :return: A list containing the historical price of the given parameters.
+    Get lowest BIN records from the database which have the given item ID and
+    rarity pair.
+
+    :param item_id: The item ID to get records for.
+    :param rarity: The rarity of the item to get records for.
+    :param span: The timespan of the data to be returned.
+    :return: None.
     """
+    sql = 'SELECT timestamp, price FROM lbin_history ' \
+          'WHERE item_id = ? AND rarity = ? AND timestamp >= ?'
+    min_time = datetime.now() - span
+    return _conn.execute(sql, (item_id, rarity, min_time)).fetchall()
 
-    # Add date parameter later
-    sql = 'SELECT timestamp, price FROM price_history WHERE' \
-          ' item_id = ? AND rarity = ? AND timestamp > ?'
-    date_constraint = datetime.now() - timedelta(days=days)
-    results = _conn.execute(sql, (item_id, rarity, date_constraint)).fetchall()
 
-    return [(_as_datetime(dt), price) for dt, price in results]
+# Table which tracks the average sale history of a (item ID, rarity) pair
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS avg_sale_history ('
+    '  timestamp      DATETIME DEFAULT CURRENT_TIMESTAMP,'
+    '  item_id        TEXT,'
+    '  rarity         TEXT,'
+    '  price          REAL'
+    ')'
+)
+_conn.execute(
+    'CREATE INDEX IF NOT EXISTS avg_sale_history_idx '
+    'ON avg_sale_history(item_id, rarity)'
+)
+
+
+@db_write
+def save_avg_sale_history(buffer: Dict[Tuple[str, str], List[float]]) -> None:
+    """
+    Given a dict which maps (item_id, rarity) pairs to prices, record it in
+    the database.
+
+    :param buffer: The average sale buffer to be recorded.
+    :return: None.
+    """
+    sql = 'INSERT INTO avg_sale_history VALUES (?, ?, ?, ?)'
+    now = datetime.now()
+    for (item_id, rarity), prices in buffer.items():
+        _conn.execute(sql, (now, item_id, rarity, statistics.mean(prices)))
+
+
+def get_avg_sale_history(item_id: str, rarity: str,
+                         span: timedelta) -> List[Tuple[datetime, float]]:
+    """
+    Get average sale records from the database which have the given item ID and
+    rarity pair.
+
+    :param item_id: The item ID to get records for.
+    :param rarity: The rarity of the item to get records for.
+    :param span: The timespan of the data to be returned.
+    :return: None.
+    """
+    sql = 'SELECT timestamp, price FROM lbin_history ' \
+          'WHERE item_id = ? AND rarity = ? AND timestamp >= ?'
+    min_time = datetime.now() - span
+    return _conn.execute(sql, (item_id, rarity, min_time)).fetchall()
+
+
+# Table which tracks bazaar price history
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS bazaar_history ('
+    '  timestamp      DATETIME DEFAULT CURRENT_TIMESTAMP,'
+    '  item_id        TEXT,'
+    '  buy_price      REAL,'
+    '  sell_price     REAL,'
+    '  buy_volume     REAL,'
+    '  sell_volume    REAL'
+    ')'
+)
+_conn.execute(
+    'CREATE INDEX IF NOT EXISTS bazaar_history_idx '
+    'ON bazaar_history(item_id)'
+)
+
+# Table which maps item IDs to base names and occurrences in different rarities
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS item_info ('
+    '  item_id        TEXT UNIQUE,'
+    '  base_name      TEXT,'
+    '  common_ct      INTEGER DEFAULT 0,'
+    '  uncommon_ct    INTEGER DEFAULT 0,'
+    '  rare_ct        INTEGER DEFAULT 0,'
+    '  epic_ct        INTEGER DEFAULT 0,'
+    '  legendary_ct   INTEGER DEFAULT 0,'
+    '  mythic_ct      INTEGER DEFAULT 0,'
+    '  supreme_ct     INTEGER DEFAULT 0,'
+    '  special_ct     INTEGER DEFAULT 0,'
+    '  v_special_ct   INTEGER DEFAULT 0,'
+    '  unknown_ct     INTEGER DEFAULT 0'
+    ')'
+)
+
+
+@db_write
+def save_item_info(active_auctions: List[ActiveAuction],
+                   **kwargs) -> None:
+    """
+    Given a list of the active auctions, update the item ID -> base name and
+    rarity count mapping.
+
+    :param active_auctions: The list of active auctions to consider.
+    :return: None.
+    """
+    sql = 'INSERT INTO item_info (item_id, base_name) VALUES (?, ?) ' \
+          'ON CONFLICT (item_id) DO UPDATE SET base_name = ?'
+    col_names = {
+        'COMMON': 'common_ct',
+        'UNCOMMON': 'uncommon_ct',
+        'RARE': 'rare_ct',
+        'EPIC': 'epic_ct',
+        'LEGENDARY': 'legendary_ct',
+        'MYTHIC': 'mythic_ct',
+        'SUPREME': 'supreme_ct',
+        'SPECIAL': 'special_ct',
+        'VERY_SPECIAL': 'v_special_ct',
+        'UNKNOWN': 'unknown_ct'
+    }
+
+    for auction in active_auctions:
+        item_id = auction.item.item_id
+        base_name = auction.item.base_name
+        rarity = auction.item.rarity
+        # Create new row or update the base name for an existing row
+        _conn.execute(sql, (item_id, base_name, base_name))
+        # Update the count
+        col_name = col_names[rarity]
+        _conn.execute(f'UPDATE item_info SET {col_name} = {col_name} + 1 '
+                      f'WHERE item_id = ?', (item_id,))
 
 
 def guess_rarity(item_id: str) -> Optional[str]:
     """
-    Find the most predominant rarity for a given item_id if it exists in the
-    database.
+    Guess the rarity of an item from its item ID. For most items, take the
+    lowest rarity which has appeared in active auctions. For pets, take the
+    rarity which occurs the most.
 
-    :param item_id: The item id to be checked.
-    :return: The most predominant rarity of the given item_id, if it exists.
+    :param item_id: The item ID to guess with.
+    :return: The guess of the rarity.
     """
-    sql = 'SELECT rarity, occurrences FROM price_history WHERE item_id = ?'
-    results = _conn.execute(sql, (item_id,)).fetchall()
+    sql = 'SELECT * FROM item_info WHERE item_id = ?'
+    rarities = constants.RARITIES.keys()
+    counts = _conn.execute(sql, (item_id,)).fetchone()[2:12]
 
-    if not len(results):
-        return None
-
-    # Take the most common rarity for pets
     if item_id.endswith('_PET'):
-        counts = defaultdict(int)
-        for rarity, occurrences in results:
-            counts[rarity] += occurrences
-        return max(counts, key=counts.get)
-    # Take the lowest rarity for other items
+        return max(zip(rarities, counts), key=lambda tp: tp[1])[0]
     else:
-        rarities = [result[0] for result in results]
-
-        def rarity_index(r):
-            return list(constants.RARITIES.keys()).index(r)
-        return min(rarities, key=rarity_index)
+        non_zero_rarities = [(r, c) for r, c in zip(rarities, counts) if c > 0]
+        return non_zero_rarities[0][0]
 
 
-@db_write
-def save_name_links(items: List[Item]) -> None:
+def guess_identifiers(fuzzy_base_name: str) -> Tuple[str, str]:
     """
-    Given a list of items, take into account their item ID/base name
-    relationships and record them into database.
+    Given a fuzzy base name, guess the corresponding (item ID, base name)
+    identifier pair.
 
-    :param items: The items to be recorded into the database.
-    :return: None.
+    :param fuzzy_base_name: The base name to be matched.
+    :return: The identifier pair with the closest matching base name.
     """
-    sql = 'INSERT OR REPLACE INTO name_link VALUES (?, ?)'
-    for item in items:
-        _conn.execute(sql, (item.item_id, item.base_name))
-
-
-def guess_item_id(base_name: str) -> str:
-    """
-    Find the base name recorded in the database which is the most similar to
-    the given base name.
-
-    :param base_name: The base name to be matched.
-    :return: The best item ID match for the given base name.
-    """
-    sql = 'SELECT base_name FROM name_link'
+    sql = 'SELECT base_name FROM item_info'
     choices = _conn.execute(sql).fetchall()
-    base_name_match = process.extractOne(base_name, choices)[0][0]
-    sql2 = 'SELECT item_id FROM name_link WHERE base_name = ?'
-    return _conn.execute(sql2, (base_name_match,)).fetchone()[0]
-
-
-def get_base_name(item_id: str) -> Optional[str]:
-    """
-    Given an item ID, try to find the corresponding base name.
-
-    :param item_id: The item ID to be checked.
-    :return: The corresponding base name, if the item ID exists in the name
-    link table.
-    """
-    sql = 'SELECT base_name FROM name_link WHERE item_id = ?'
-    match = _conn.execute(sql, (item_id,)).fetchone()
-    return match[0] if match is not None else None
-
-
-def most_recent_timestamp(item_id: str, rarity: str) -> Optional[datetime]:
-    """
-    Get the datetime of the last recorded price point for the given
-    item ID, rarity pair.
-
-    :param item_id: The item ID of the item to be checked.
-    :param rarity: The rarity of the item to be checked.
-    :return: The most recent timestamp, or None if there are no records.
-    """
-    sql = 'SELECT timestamp FROM price_history' \
-          ' WHERE item_id = ? AND rarity = ?' \
-          ' ORDER BY timestamp DESC LIMIT 1'
-    result = _conn.execute(sql, (item_id, rarity)).fetchone()
-    return _as_datetime(result[0]) if result is not None else None
+    base_name = process.extractOne(fuzzy_base_name, choices)[0][0]
+    sql2 = 'SELECT item_id FROM item_info WHERE base_name = ?'
+    item_id = _conn.execute(sql2, (base_name,)).fetchone()[0]
+    return item_id, base_name

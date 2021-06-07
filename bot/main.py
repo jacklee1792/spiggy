@@ -1,3 +1,4 @@
+import asyncio
 import configparser
 import logging
 import os
@@ -8,13 +9,19 @@ import dotenv
 from discord.ext import commands
 from discord_slash import SlashCommand
 
+from backend.controllers.auctionhouse import AuctionHouse
+from backend.controllers.bazaar import Bazaar
+from backend.controllers.skyblockapi import SkyblockAPI
+from backend.database import database
+from bot.cogs.auctionscog import AuctionsCog
+from bot.cogs.metacog import MetaCog
 
-def main() -> None:
-    # Forget about the Discord logging
-    logging.getLogger('discord').setLevel(logging.ERROR)
 
-    # Add timestamp to logs
-    logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+async def main() -> None:
+    # Set up logging
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] %(funcName)s > %(levelname)s: '
+                               '%(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
 
     # Read config
@@ -27,15 +34,28 @@ def main() -> None:
                        intents=discord.Intents.default())
     SlashCommand(bot, sync_commands=True, sync_on_cog_reload=True)
 
-    # Load extensions
-    bot.load_extension('cogs.metacog')
-    bot.load_extension('cogs.auctionscog')
-
-    # Load token, run bot
+    # Tokens
     dotenv.load_dotenv(dotenv_path=config_folder / '.env')
-    token = os.getenv('SPIGGY_BOT_TOKEN')
-    bot.run(token)
+    spiggy_token = os.getenv('SPIGGY_BOT_TOKEN')
+    hypixel_key = os.getenv('HYPIXEL_API_KEY')
 
+    async with SkyblockAPI(hypixel_key) as api:
+        ah = AuctionHouse(api)
+        bz = Bazaar(api)
+
+        # Auction house handlers
+        ah.on_active_auctions(ah.update_active_buffers)
+        ah.on_ended_auctions(ah.update_ended_buffers)
+        ah.on_active_auctions(database.save_item_info)
+
+        # Load cogs
+        bot.add_cog(MetaCog(bot=bot))
+        bot.add_cog(AuctionsCog(bot=bot, ah=ah))
+
+        # Start all processes
+        await asyncio.gather(ah.start_caching(),
+                             bz.start_caching(),
+                             bot.start(spiggy_token))
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

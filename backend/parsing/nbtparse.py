@@ -349,7 +349,7 @@ def extract_rarity(nbt: NbtTag) -> str:
         return rarity if rarity in constants.RARITIES.keys() else 'UNKNOWN'
     except KeyError:
         # Some weird items don't have lore for some reason
-        raise ValueError
+        return 'UNKNOWN'
 
 
 def extract_rune(nbt: NbtTag) -> Optional[Tuple[str, int]]:

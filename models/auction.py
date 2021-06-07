@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from models.item import Item, make_item
+from models.item import Item
 from models.user import User
 
 
@@ -37,8 +37,6 @@ class EndedAuction(Auction):
     price: float
     item: Item
 
-    buyer: User
-
     def __init__(self, d: Dict[str, Any]) -> None:
         """
         Construct an EndedAuction instance from a dictionary, which is in the
@@ -49,10 +47,9 @@ class EndedAuction(Auction):
         self.auction_id = d['auction_id']
         self.seller = User(d['seller'])
         self.is_bin = d['bin']
-        self.end_time = datetime.fromtimestamp(d['timestamp'] / 1000,
-                                               tz=timezone.utc)
+        self.end_time = datetime.fromtimestamp(d['timestamp'] / 1000)
         self.price = d['price']
-        self.item = make_item(d['item_bytes'])
+        self.item = Item(d['item_bytes'])
 
 
 class ActiveAuction(Auction):
@@ -66,6 +63,7 @@ class ActiveAuction(Auction):
     price: float
     item: Item
 
+    start_time: datetime
     starting_price: float
 
     def __init__(self, d: Dict[str, any]) -> None:
@@ -77,10 +75,11 @@ class ActiveAuction(Auction):
         self.auction_id = d['uuid']
         self.seller = User(d['auctioneer'])
         self.is_bin = 'bin' in d
-        self.end_time = datetime.fromtimestamp(d['end'] / 1000, tz=timezone.utc)
+        self.end_time = datetime.fromtimestamp(d['end'] / 1000)
         if self.is_bin:
             self.price = d['starting_bid']
         else:
             self.price = d['highest_bid_amount']
-        self.item = make_item(d['item_bytes'])
+        self.item = Item(d['item_bytes'])
+        self.start_time = datetime.fromtimestamp(d['start'] / 1000)
         self.starting_price = d['starting_bid']

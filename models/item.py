@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional, Tuple
 
 from backend.parsing import nbtparse
@@ -5,19 +6,7 @@ from backend.parsing import nbtparse
 
 class Item:
     """
-    Abstract class which defines a Skyblock item.
-    """
-    item_id: str
-    base_name: str
-    display_name: str
-    stack_size: int
-    rarity: str
-
-
-class GenericItem(Item):
-    """
-    Class defining generic items which don't have to be handled separately in
-    the database (eg. swords, armor, blocks).
+    Class defining a Skyblock item.
     """
     item_id: str
     base_name: str
@@ -54,26 +43,16 @@ class GenericItem(Item):
         self.reforge = nbtparse.extract_reforge(nbt)
         self.dungeon_stars = nbtparse.extract_dungeon_stars(nbt)
 
-        # Make sure item attributes are as expected
-        if not all(ord(c) < 128 for c in self.base_name) \
-                or self.stack_size < 1:
-            print(f'Malformed item found, b64 is {b64}')
-            raise ValueError
+    def has_ascii_base_name(self) -> bool:
+        """
+        Determine whether or not the base name consists solely of ASCII
+        characters, and log if it doesn't
 
-
-def make_item(b64: str) -> Optional[Item]:
-    """
-    Factory function which produces the correct subclass of Item from the
-    "item_bytes" field as it appears in the Skyblock API.
-
-    Returns none of the given b64 is malformed.
-
-    :param b64: The base-64 representation of the item bytes.
-    :return: A corresponding Item subclass instance.
-    """
-
-    # For now, just treat everything as a GenericItem
-    try:
-        return GenericItem(b64)
-    except ValueError:
-        return None
+        :return: Whether or not the base name consists solely of ASCII
+        characters
+        """
+        ok = all(ord(c) < 128 for c in self.base_name)
+        if not ok:
+            logging.info(f'Found item with non-ASCII base name '
+                         f'{self.base_name}')
+        return ok

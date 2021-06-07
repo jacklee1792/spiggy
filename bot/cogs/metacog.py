@@ -49,7 +49,3 @@ class MetaCog(Cog):
     async def dump_detach(self, ctx: SlashContext):
         self.dump_channel = None
         await ctx.send('Done!')
-
-
-def setup(bot: Bot):
-    bot.add_cog(MetaCog(bot))
