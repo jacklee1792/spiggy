@@ -1,4 +1,5 @@
 import functools
+import logging
 import sqlite3
 import statistics
 from configparser import ConfigParser
@@ -9,6 +10,7 @@ from typing import Dict, List, Optional, Tuple, Callable
 from fuzzywuzzy import process
 
 from backend import constants
+from backend.controllers.auctionhouse import AuctionHouse
 from models.auction import ActiveAuction
 
 
@@ -36,6 +38,7 @@ def db_write(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         if WRITE_TO_DATABASE:
             func(*args, **kwargs)
+            logging.info('OK wrote to database')
             _conn.commit()
     return wrapper
 
@@ -56,17 +59,17 @@ _conn.execute(
 
 
 @db_write
-def save_lbin_history(buffer: Dict[Tuple[str, str], List[float]]) -> None:
+def save_lbin_history(ah: AuctionHouse) -> None:
     """
-    Given a dict which maps (item_id, rarity) pairs to prices, record it in the
+    Record the lowest BIN buffer of the given AuctionHouse instance into the
     database.
 
-    :param buffer: The lowest BIN buffer to be recorded.
+    :param ah: The AuctionHouse instance to use.
     :return: None.
     """
     sql = 'INSERT INTO lbin_history VALUES (?, ?, ?, ?)'
     now = datetime.now()
-    for (item_id, rarity), prices in buffer.items():
+    for (item_id, rarity), prices in ah.lbin_buffer.items():
         _conn.execute(sql, (now, item_id, rarity, statistics.mean(prices)))
 
 
@@ -103,17 +106,17 @@ _conn.execute(
 
 
 @db_write
-def save_avg_sale_history(buffer: Dict[Tuple[str, str], List[float]]) -> None:
+def save_avg_sale_history(ah: AuctionHouse) -> None:
     """
-    Given a dict which maps (item_id, rarity) pairs to prices, record it in
-    the database.
+    Record the sales buffer of the given AuctionHouse instance into the
+    database.
 
-    :param buffer: The average sale buffer to be recorded.
+    :param ah: The AuctionHouse instance to use.
     :return: None.
     """
     sql = 'INSERT INTO avg_sale_history VALUES (?, ?, ?, ?)'
     now = datetime.now()
-    for (item_id, rarity), prices in buffer.items():
+    for (item_id, rarity), prices in ah.sale_buffer.items():
         _conn.execute(sql, (now, item_id, rarity, statistics.mean(prices)))
 
 
@@ -128,7 +131,7 @@ def get_avg_sale_history(item_id: str, rarity: str,
     :param span: The timespan of the data to be returned.
     :return: None.
     """
-    sql = 'SELECT timestamp, price FROM lbin_history ' \
+    sql = 'SELECT timestamp, price FROM avg_sale_history ' \
           'WHERE item_id = ? AND rarity = ? AND timestamp >= ?'
     min_time = datetime.now() - span
     return _conn.execute(sql, (item_id, rarity, min_time)).fetchall()
@@ -170,13 +173,11 @@ _conn.execute(
 
 
 @db_write
-def save_item_info(active_auctions: List[ActiveAuction],
-                   **kwargs) -> None:
+def save_item_info(ah: AuctionHouse) -> None:
     """
-    Given a list of the active auctions, update the item ID -> base name and
-    rarity count mapping.
+    Update the item info from the given AuctionHouse object's active auctions.
 
-    :param active_auctions: The list of active auctions to consider.
+    :param ah: The AuctionHouse instance to use.
     :return: None.
     """
     sql = 'INSERT INTO item_info (item_id, base_name) VALUES (?, ?) ' \
@@ -194,7 +195,7 @@ def save_item_info(active_auctions: List[ActiveAuction],
         'UNKNOWN': 'unknown_ct'
     }
 
-    for auction in active_auctions:
+    for auction in ah.active_auctions:
         item_id = auction.item.item_id
         base_name = auction.item.base_name
         rarity = auction.item.rarity
@@ -216,7 +217,7 @@ def guess_rarity(item_id: str) -> Optional[str]:
     :return: The guess of the rarity.
     """
     sql = 'SELECT * FROM item_info WHERE item_id = ?'
-    rarities = constants.RARITIES.keys()
+    rarities = constants.DISPLAY_RARITIES.keys()
     counts = _conn.execute(sql, (item_id,)).fetchone()[2:12]
 
     if item_id.endswith('_PET'):
@@ -240,3 +241,16 @@ def guess_identifiers(fuzzy_base_name: str) -> Tuple[str, str]:
     sql2 = 'SELECT item_id FROM item_info WHERE base_name = ?'
     item_id = _conn.execute(sql2, (base_name,)).fetchone()[0]
     return item_id, base_name
+
+
+def get_base_name(item_id: str) -> Optional[str]:
+    """
+    Given an item ID, return its base name, or None if the item ID does not
+    exist in the database.
+
+    :param item_id: The item ID.
+    :return: The corresponding base name of the item, if it exists.
+    """
+    sql = 'SELECT base_name FROM item_info WHERE item_id = ?'
+    ret = _conn.execute(sql, (item_id,)).fetchone()
+    return ret[0] if ret is not None else None

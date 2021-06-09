@@ -25,27 +25,3 @@ class MetaCog(Cog):
     )
     async def ping(self, ctx: SlashContext):
         await ctx.send('Pong!')
-
-    @cog_slash(
-        subcommand=True,
-        base='dump',
-        name='attach',
-        description='Set the dump channel',
-        checks=[
-            utils.check_admin_role
-        ])
-    async def dump_attach(self, ctx: SlashContext):
-        self.dump_channel = ctx.channel
-        await ctx.send('OK, dump set to this channel.')
-
-    @cog_slash(
-        subcommand=True,
-        base='dump',
-        name='detach',
-        description='Detach from the dump channel',
-        checks=[
-            utils.check_admin_role
-        ])
-    async def dump_detach(self, ctx: SlashContext):
-        self.dump_channel = None
-        await ctx.send('Done!')

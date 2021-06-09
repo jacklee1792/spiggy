@@ -346,7 +346,7 @@ def extract_rarity(nbt: NbtTag) -> str:
         words = _without_nbt_style(rarity_line).split()
         # Account for 'VERY_SPECIAL' case
         rarity = words[0] if words[0] != 'VERY' else 'VERY_SPECIAL'
-        return rarity if rarity in constants.RARITIES.keys() else 'UNKNOWN'
+        return rarity if rarity in constants.DISPLAY_RARITIES.keys() else 'UNKNOWN'
     except KeyError:
         # Some weird items don't have lore for some reason
         return 'UNKNOWN'

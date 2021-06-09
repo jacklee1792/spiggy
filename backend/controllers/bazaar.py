@@ -54,7 +54,6 @@ class Bazaar:
         self.last_update = last_update
 
         # Notify the handlers
-        logging.info('OK Successfully updated')
         for func in self._handlers:
             if inspect.iscoroutinefunction(func):
                 await func(last_update=self.last_update,

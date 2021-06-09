@@ -23,6 +23,8 @@ async def main() -> None:
                         format='[%(asctime)s] %(funcName)s > %(levelname)s: '
                                '%(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
+    logging.getLogger('discord').setLevel(logging.WARNING)
+    logging.getLogger('discord_slash').setLevel(logging.WARNING)
 
     # Read config
     config_folder = Path(__file__).parent.parent / 'config'
@@ -43,14 +45,21 @@ async def main() -> None:
         ah = AuctionHouse(api)
         bz = Bazaar(api)
 
-        # Auction house handlers
-        ah.on_active_auctions(ah.update_active_buffers)
-        ah.on_ended_auctions(ah.update_ended_buffers)
-        ah.on_active_auctions(database.save_item_info)
-
         # Load cogs
         bot.add_cog(MetaCog(bot=bot))
         bot.add_cog(AuctionsCog(bot=bot, ah=ah))
+
+        # On every active auctions cache, update item ID to base name
+        # mappings and rarity counts
+        ah.on('active auctions cache', database.save_item_info)
+
+        # When the lowest BIN buffer is ready, save it to the database and
+        # update all of the dashboards
+        ah.on('lbin buffer ready', database.save_lbin_history)
+        ah.on('lbin buffer ready', bot.cogs['AuctionsCog'].refresh_dashboards)
+
+        # When the sale buffer is ready, save it tot he database
+        ah.on('sale buffer ready', database.save_avg_sale_history)
 
         # Start all processes
         await asyncio.gather(ah.start_caching(),

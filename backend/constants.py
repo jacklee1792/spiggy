@@ -1,4 +1,4 @@
-RARITIES = {
+DISPLAY_RARITIES = {
     'COMMON': 'Common',
     'UNCOMMON': 'Uncommon',
     'RARE': 'Rare',

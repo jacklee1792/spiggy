@@ -1,9 +1,9 @@
 from configparser import ConfigParser
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
-from discord import Embed, File
+from discord import Embed, File, Message
 from discord.ext.commands import Bot, Cog
 from discord_slash import SlashCommandOptionType, SlashContext
 from discord_slash.utils.manage_commands import create_choice, create_option
@@ -25,9 +25,15 @@ DEFAULT_PLOT_SPAN = _cfg['Plotting'].getint('DefaultPlotSpan')
 class AuctionsCog(Cog):
     """
     Bot cog which handles auction commands.
+
+    :ivar bot: The bot instance which holds this cog.
+    :ivar ah: The AuctionHouse instance to use.
+    :ivar dashboards: List of tuples representing the dashboards that need to be
+    refreshed occasionally.
     """
     bot: Bot
     ah: AuctionHouse
+    dashboards: List[Tuple[Message, List, str, str]]
 
     def __init__(self, bot: Bot, ah: AuctionHouse) -> None:
         """
@@ -38,6 +44,7 @@ class AuctionsCog(Cog):
         """
         self.bot = bot
         self.ah = ah
+        self.dashboards = []
 
     @cog_slash(
         name='plot',
@@ -54,7 +61,7 @@ class AuctionsCog(Cog):
                 description='The rarity of the item to be plotted',
                 option_type=SlashCommandOptionType.STRING,
                 choices=[create_choice(name=value, value=key) for
-                         key, value in constants.RARITIES.items()],
+                         key, value in constants.DISPLAY_RARITIES.items()],
                 required=False
             ),
             create_option(
@@ -89,3 +96,51 @@ class AuctionsCog(Cog):
         file = File(Path(__file__).parent.parent / 'plot.png')
         embed.set_image(url='attachment://plot.png')
         await ctx.send(file=file, embed=embed)
+
+    @cog_slash(
+        subcommand=True,
+        checks=[utils.is_owner],
+        base='dashboard',
+        name='create',
+        description='Create a new dashboard',
+        options=[
+            create_option(
+                name='raw',
+                description='The Python list to be parsed into a list of items',
+                option_type=SlashCommandOptionType.STRING,
+                required=True
+            ),
+            create_option(
+                name='title',
+                description='The title of the dashboard to be created',
+                option_type=SlashCommandOptionType.STRING,
+                required=False
+            ),
+            create_option(
+                name='description',
+                description='The description of the dashboard to be created',
+                option_type=SlashCommandOptionType.STRING,
+                required=False
+            )
+        ]
+    )
+    async def dashboard_create(self, ctx: SlashContext, raw: str,
+                               title: str = 'No title set',
+                               description: str = 'No description set') -> None:
+        # This is why we need the owner check
+        items = eval(raw)
+        embed = embeds.dashboard_embed(items=items, title=title,
+                                       description=description)
+        await ctx.send(embed=embed)
+        self.dashboards.append((ctx.message, items, title, description))
+
+    async def refresh_dashboards(self, _) -> None:
+        """
+        Refresh all of the dashboards.
+
+        :return: None.
+        """
+        for message, items, title, description in self.dashboards:
+            embed = embeds.dashboard_embed(items=items, title=title,
+                                           description=description)
+            await message.edit(embed=embed)

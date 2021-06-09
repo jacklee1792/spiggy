@@ -6,10 +6,9 @@ from configparser import ConfigParser
 from datetime import datetime, timedelta
 from multiprocessing import Pool
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Union
+from typing import Awaitable, Callable, List, Literal, Optional, Tuple, Union
 
 from backend.controllers.skyblockapi import SkyblockAPI
-from backend.database import database
 from models.auction import ActiveAuction, EndedAuction
 
 _here = Path(__file__).parent
@@ -35,30 +34,27 @@ class AuctionHouse:
     :ivar api: The Skyblock API wrapper to use.
     :ivar active_auctions: The most recent snapshot of active auctions.
     :ivar ended_auctions: The most recent page of ended auctions.
-    :ivar _aa_handlers: The handlers for new active auctions.
-    :ivar _ea_handlers: The handlers for new ended auctions.
     :ivar aa_last_update: The time when active_auctions was last updated.
     :ivar ea_last_update: The time when ended_auctions was last updated.
 
     :ivar aa_cache_count: Number of active auctions caches since last clear.
     :ivar ea_cache_count: Number of ended auctions caches since last clear.
-    :ivar lbin_buffer: Map of items to lowest BIN prices.
-    :ivar sold_buffer: Map of items to recently sold prices.
-    :ivar active_occurrences:
+    :ivar lbin_buffer: Maps (item ID, rarity) pairs to their observed lowest
+    BIN prices in the past few snapshots.
+    :ivar sale_buffer: Map of (item ID, rarity) pairs to a list of their sale
+    prices in the past few snapshots.
     """
     api: SkyblockAPI
     active_auctions: List[ActiveAuction]
     ended_auctions: List[EndedAuction]
-    _aa_handlers: List[Union[Callable, Awaitable]]
-    _ea_handlers: List[Union[Callable, Awaitable]]
+    handlers: defaultdict[str, List[Union[Callable, Awaitable]]]
     aa_last_update: Optional[datetime]
     ea_last_update: Optional[datetime]
 
     aa_cache_count: int
     ea_cache_count: int
-    active_occurrences: Dict[Tuple[str, str], int]
-    lbin_buffer: Dict[Tuple[str, str], List[float]]
-    sold_buffer: Dict[Tuple[str, str], List[float]]
+    lbin_buffer: defaultdict[Tuple[str, str], List[float]]
+    sale_buffer: defaultdict[Tuple[str, str], List[float]]
 
     def __init__(self, api: SkyblockAPI) -> None:
         """
@@ -69,13 +65,39 @@ class AuctionHouse:
         """
         self.api = api
         self.active_auctions, self.ended_auctions = [], []
-        self._aa_handlers, self._ea_handlers = [], []
+        self.handlers = defaultdict(list)
         self.aa_last_update, self.ea_last_update = None, None
 
         self.aa_cache_count, self.ea_cache_count = 0, 0
-        self.active_occurrences = defaultdict(int)
         self.lbin_buffer = defaultdict(list)
-        self.sold_buffer = defaultdict(list)
+        self.sale_buffer = defaultdict(list)
+
+    async def _emit(self, event: str) -> None:
+        """
+        Emit an event, calling all of the handlers associated with it.
+
+        :return: None.
+        """
+        for handler in self.handlers[event]:
+            if inspect.iscoroutinefunction(handler):
+                await handler(self)
+            else:
+                handler(self)
+
+    def on(self,
+           event: Literal[
+               'active auctions cache', 'ended auctions cache',
+               'lbin buffer ready', 'sale buffer ready'
+           ],
+           handler: Union[Callable, Awaitable]) -> None:
+        """
+        Register a handler to be called on an event.
+
+        :param event: The name of the method to register for.
+        :param handler: The handler to be added.
+        :return: None.
+        """
+        self.handlers[event].append(handler)
 
     async def cache_active_auctions(self) -> None:
         """
@@ -97,19 +119,20 @@ class AuctionHouse:
         logging.info('OK got proper snapshot')
         active_auctions = []
         if AA_MULTIPROCESS:
+            # TODO use p.imap
             with Pool() as p:
                 for batch_start in range(0, len(res), AA_BATCH_SIZE):
                     batch_end = batch_start + AA_BATCH_SIZE
                     ext = p.map(ActiveAuction, res[batch_start:batch_end])
                     active_auctions.extend(ext)
-                    await asyncio.sleep(0)
+                    await asyncio.sleep(1)
         else:
             for batch_start in range(0, len(res), AA_BATCH_SIZE):
                 batch_end = batch_start + AA_BATCH_SIZE
                 ext = [ActiveAuction(d)
                        for d in res[batch_start:batch_end]]
                 active_auctions.extend(ext)
-                await asyncio.sleep(0)
+                await asyncio.sleep(1)
 
         # Parse and clean up
         active_auctions = [auction for auction in active_auctions if
@@ -119,16 +142,9 @@ class AuctionHouse:
         self.active_auctions = active_auctions
         self.aa_last_update = last_update
         self.aa_cache_count += 1
+        await self.update_lbin_buffer()
 
-        # Notify the handlers
-        logging.info('OK Successfully updated')
-        for func in self._aa_handlers:
-            if inspect.iscoroutinefunction(func):
-                await func(last_update=self.aa_last_update,
-                           active_auctions=self.active_auctions)
-            else:
-                func(last_update=self.aa_last_update,
-                     active_auctions=self.active_auctions)
+        await self._emit('active auctions cache')
 
     async def cache_ended_auctions(self) -> None:
         """
@@ -152,34 +168,9 @@ class AuctionHouse:
         self.ended_auctions = ended_auctions
         self.ea_last_update = last_update
         self.ea_cache_count += 1
+        await self.update_sale_buffer()
 
-        # Notify the handlers
-        logging.info('OK Successfully updated')
-        for func in self._ea_handlers:
-            if inspect.iscoroutinefunction(func):
-                await func(last_update=self.ea_last_update,
-                           ended_auctions=self.ended_auctions)
-            else:
-                func(last_update=self.ea_last_update,
-                     ended_auctions=self.ended_auctions)
-
-    def on_active_auctions(self, handler: Union[Callable, Awaitable]) -> None:
-        """
-        Add a handler to be called when new active auctions are found.
-
-        :param handler: The handler to be added.
-        :return: None.
-        """
-        self._aa_handlers.append(handler)
-
-    def on_ended_auctions(self, handler: Union[Callable, Awaitable]) -> None:
-        """
-        Add a handler to be called when new ended auctions are found.
-
-        :param handler: The handler to be added.
-        :return: None.
-        """
-        self._ea_handlers.append(handler)
+        await self._emit('ended auctions cache')
 
     async def start_aa_caching(self) -> None:
         """
@@ -209,28 +200,23 @@ class AuctionHouse:
         """
         await asyncio.gather(self.start_aa_caching(), self.start_ea_caching())
 
-    def update_active_buffers(self,
-                              last_update: datetime,
-                              active_auctions: List[ActiveAuction]) -> None:
+    async def update_lbin_buffer(self) -> None:
         """
-        Update the buffers from an active auctions snapshot.
+        Update the lowest BIN buffer from an active auctions snapshot.
 
         For each (item ID, rarity) pair, determine the number of times it
         appears and the lowest BIN which has been on the auction house for at
         least one minute.
 
-        :param last_update: The timestamp of the snapshot.
-        :param active_auctions: The active auctions snapshot.
         :return: None.
         """
         current_lbin = {}
         minute = timedelta(minutes=1)
 
         # Get current lowest BINs
-        for auction in active_auctions:
+        for auction in self.active_auctions:
             key = (auction.item.item_id, auction.item.rarity)
-            self.active_occurrences[key] += 1
-            duration = last_update - auction.start_time
+            duration = self.aa_last_update - auction.start_time
             if auction.is_bin and duration >= minute:
                 if key not in current_lbin:
                     current_lbin[key] = auction.unit_price
@@ -242,38 +228,34 @@ class AuctionHouse:
         for key, price in current_lbin.items():
             self.lbin_buffer[key].append(price)
 
-        # Maybe commit to database and clear the buffer
+        # Maybe emit event and reset
         if self.aa_cache_count == AA_CLEAR_THRESHOLD:
-            database.save_lbin_history(self.lbin_buffer)
+            await self._emit('lbin buffer ready')
             self.aa_cache_count = 0
-            self.active_occurrences = defaultdict(int)
             self.lbin_buffer = defaultdict(list)
-            logging.info('OK Buffers committed to database and cleared')
+            logging.info('OK Buffer cleared')
         else:
-            logging.info(f'OK Buffers updated '
+            logging.info(f'OK Buffer updated '
                          f'[{self.aa_cache_count}/{AA_CLEAR_THRESHOLD}]')
 
-    def update_ended_buffers(self,
-                             ended_auctions: List[EndedAuction],
-                             **kwargs) -> None:
+    async def update_sale_buffer(self) -> None:
         """
         Update the buffers from an ended auctions snapshot.
 
-        :param ended_auctions: The ended auctions snapshot.
         :return: None.
         """
-        for auction in ended_auctions:
+        for auction in self.ended_auctions:
             key = (auction.item.item_id, auction.item.rarity)
-            self.sold_buffer[key].append(auction.unit_price)
+            self.sale_buffer[key].append(auction.unit_price)
 
-        # Maybe commit to database and clear the buffer
+        # Maybe emit event and reset
         if self.ea_cache_count == EA_CLEAR_THRESHOLD:
-            # TODO pass it to DB
+            await self._emit('sale buffer ready')
             self.ea_cache_count = 0
-            self.sold_buffer = defaultdict(list)
-            logging.info('OK Buffers committed to database and cleared')
+            self.sale_buffer = defaultdict(list)
+            logging.info('OK Buffer cleared')
         else:
-            logging.info(f'OK Buffers updated '
+            logging.info(f'OK Buffer updated '
                          f'[{self.ea_cache_count}/{EA_CLEAR_THRESHOLD}]')
 
 
@@ -291,19 +273,27 @@ if __name__ == '__main__':
                                '%(message)s',
                         datefmt='%m/%d/%Y %I:%M:%S %p')
 
-    def print_aa_summary(last_update, active_auctions):
-        print(f'Handler got {len(active_auctions)} active auctions at '
-              f'{last_update}')
+    def print_aa_summary(ah: AuctionHouse) -> None:
+        print(f'Handler got {len(ah.active_auctions)} active auctions at '
+              f'{ah.aa_last_update}')
 
-    def print_ea_summary(last_update, ended_auctions):
-        print(f'Handler got {len(ended_auctions)} ended auctions at '
-              f'{last_update}')
+    def print_ea_summary(ah: AuctionHouse) -> None:
+        print(f'Handler got {len(ah.ended_auctions)} ended auctions at '
+              f'{ah.ea_last_update}')
+
+    def print_lbin_summary(ah: AuctionHouse) -> None:
+        print(f'LBIN summary is {str(ah.lbin_buffer)[:200]}')
+
+    def print_sale_summary(ah: AuctionHouse) -> None:
+        print(f'Sale summary is {str(ah.sale_buffer)[:200]}')
 
     async def main():
         async with SkyblockAPI(hypixel_key) as api:
             ah = AuctionHouse(api)
-            ah.on_active_auctions(print_aa_summary)
-            ah.on_ended_auctions(print_ea_summary)
+            ah.on('active auctions cache', print_aa_summary)
+            ah.on('ended auctions cache', print_ea_summary)
+            ah.on('lbin buffer ready', print_lbin_summary)
+            ah.on('sale buffer ready', print_sale_summary)
             await ah.start_caching()
 
     asyncio.run(main())

@@ -55,6 +55,21 @@ def format_number(price: float) -> str:
     return f'{price:.2f}'
 
 
+def format_change(begin_price: float, end_price: float) -> Tuple[str, str]:
+    """
+    Return the absolute price change and percentage price change as a pair of
+    strings.
+
+    :param begin_price: The beginning price.
+    :param end_price: The ending price.
+    :return: A pair of strings representing the absolute and percentage changes.
+    """
+    abs_change = end_price - begin_price
+    pct_change = 100 * abs_change / begin_price
+    sign = '+' if abs_change >= 0 else ''
+    return sign + format_number(abs_change), f'{abs(pct_change):.2f}%'
+
+
 def plot_with_gradient(xs: List[datetime], ys: List[float],
                        ax=None, **kwargs) -> None:
     """
@@ -155,12 +170,9 @@ def plot_ah_price(item_id: str, rarity: str,
     begin_price, end_price = ys[0], ys[-1]
     plt.figtext(0.05, 0.85, f'{format_number(end_price)}',
                 fontweight='bold', fontsize=12)
-    price_change = end_price - begin_price
-    percent_change = 100 * price_change / begin_price
-    sign = '+' if price_change >= 0 else ''
-    color = 'forestgreen' if price_change >= 0 else 'darkred'
-    plt.figtext(0.05, 0.8, f'{sign + format_number(price_change)} '
-                           f'({percent_change:+.2f}%)',
+    color = 'forestgreen' if end_price >= begin_price else 'darkred'
+    abs_change, pct_change = format_change(begin_price, end_price)
+    plt.figtext(0.05, 0.8, f'{abs_change} {pct_change}',
                 fontweight='bold', fontsize=10, color=color)
 
     # Price styling
@@ -179,9 +191,8 @@ def plot_ah_price(item_id: str, rarity: str,
     plt.savefig(here / 'plot.png')
 
 
-def check_admin_role(ctx: SlashContext) -> bool:
-    role = discord.utils.find(lambda r: r.name == 'Admin', ctx.guild.roles)
-    return role in ctx.author.roles
+async def is_owner(ctx: SlashContext) -> bool:
+    return await ctx.bot.is_owner(ctx.author)
 
 
 def cog_slash(subcommand: bool = False,
