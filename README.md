@@ -18,7 +18,9 @@
 
 - **Plotting:** Get an overview of an item's lowest BIN price over time, complete with an autocorrect system which guesses the correct name/rarity when it isn't provided.
 
-![](images/screenshot1.png)
+<p align="center">
+    <img src="/images/screenshot1.png"/>
+</p>
 
 
 
