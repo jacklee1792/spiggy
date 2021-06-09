@@ -1,7 +1,7 @@
 <h1 align="center">Spiggy</h1>
 
 <p align="center">
-    Discord.py bot to track Hypixel Skyblock auction house and bazaar prices
+    Async/await based bot to track Hypixel Skyblock auction house and bazaar prices
 </p>
 
 <div align="center">
@@ -16,7 +16,11 @@
 
 ## Features
 
-Coming soon™
+- **Plotting:** Get an overview of an item's lowest BIN price over time, complete with an autocorrect system which guesses the correct name/rarity when it isn't provided.
+
+![](images/screenshot1.png)
+
+
 
 ## Installation
 
@@ -24,10 +28,9 @@ Coming soon™
 
 ## Dependencies
 
-For now, Spiggy uses
+Spiggy uses
 
-- `asyncio` and `aiohttps` for fast asynchronous HTTPS requests;
-- `nbt`, `base64`, and `multiprocessing` for parsing item data;
-- `sqlite3` for caching data;
+- `sqlite3` for its database;
+- `fuzzywuzzy` for command autocorrection;
 - `matplotlib` for data visualizations; _and_
-- `discord` and various extensions in `discord.ext` for its interface.
+- `discord.py`, various extensions in `discord.ext`, and `discord-py-slash-command` for its interface.
