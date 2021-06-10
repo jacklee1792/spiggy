@@ -15,6 +15,7 @@ from matplotlib import colors as mcolors, dates as mdates, pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.ticker import FuncFormatter
 
+from backend.controllers.auctionhouse import AuctionHouse
 from backend.database import database
 from bot import embeds
 
@@ -31,6 +32,20 @@ if SLASH_COMMAND_GUILDS == '':
 else:
     # Register slash commands in the given guilds
     SLASH_COMMAND_GUILDS = [int(x) for x in SLASH_COMMAND_GUILDS.split(',')]
+
+
+plt.rc('font', **{
+    'family': 'sans-serif',
+    'sans-serif': ['Verdana'],
+    'size': 10
+})
+plt.rc('figure', facecolor='#F0F0F0')
+plt.rc('axes', facecolor='#E0E0F0', edgecolor='#C0C0C0')
+plt.rc('text', color='#444444')
+plt.rc('xtick', color='#555555')
+plt.rc('ytick', color='#555555')
+plt.rc('lines', linewidth=2)
+plt.rc('grid', color='#F0F0F0')
 
 
 def format_number(price: float) -> str:
@@ -71,7 +86,7 @@ def format_change(begin_price: float, end_price: float) -> Tuple[str, str]:
 
 
 def plot_with_gradient(xs: List[datetime], ys: List[float],
-                       ax=None, **kwargs) -> None:
+                       color: str, ax=None, **kwargs) -> None:
     """
     Plot the given lists of x-values and y-values with a gradient color fill
     under it.
@@ -81,6 +96,7 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
 
     :param xs: The list of x-values to plot.
     :param ys: The list of y-values to plot.
+    :param color: The color of the line to plot.
     :param ax: The pyplot axes to plot on.
     :return: None.
     """
@@ -91,7 +107,7 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
     if ax is None:
         ax = plt.gca()
 
-    line, = ax.plot(xs, ys, **kwargs)
+    line, = ax.plot(xs, ys, color=color, **kwargs)
     fill_color = line.get_color()
 
     z_order = line.get_zorder()
@@ -122,14 +138,14 @@ def plot_with_gradient(xs: List[datetime], ys: List[float],
 
 def smoothen(xs: List[Any], ys: List[float]) -> Tuple[List[Any], List[float]]:
     """
-    Reduce to ~100 data points and apply smoothing.
+    Reduce to ~200 data points and apply smoothing.
 
     :param xs: The list of x-values.
     :param ys: The list of y-values to have the filter applied to.
     :return: The new x and y values.
     """
     n = len(xs)
-    window_size = math.ceil(n / 100)
+    window_size = math.ceil(n / 200)
     new_xs, new_ys = [], []
     for window_start in range(0, n, window_size):
         window_end = window_start + window_size
@@ -140,22 +156,25 @@ def smoothen(xs: List[Any], ys: List[float]) -> Tuple[List[Any], List[float]]:
     return new_xs, new_ys
 
 
-def plot_ah_price(item_id: str, rarity: str,
-                  span: timedelta) -> None:
+def plot_lbin_history(item_id: str, rarity: str,
+                      span: timedelta,
+                      ah: Optional[AuctionHouse] = None) -> None:
     """
-    Plot the historical price of an item and store it in plot.png.
+    Plot the historical lowest BIN of an item and store it in plot.png. If
+    possible, add the current lowest BIN as well.
 
     :param item_id: The item ID to be plotted.
     :param rarity: The rarity of the item to be plotted.
     :param span: The number of previous days to plot.
+    :param ah: The AuctionHouse instance to use to get the current lowest BIN.
     :return: None.
     """
     results = database.get_lbin_history(item_id, rarity, span)
     xs, ys = zip(*results)
     xs, ys = smoothen(xs, ys)
-
-    # Theme
-    plt.style.use('seaborn-dark')
+    if ah is not None and (item_id, rarity) in ah.lbin_buffer:
+        xs.append(ah.aa_last_update)
+        ys.append(ah.lbin_buffer[(item_id, rarity)][-1])
 
     # Setup
     plt.clf()
@@ -166,13 +185,13 @@ def plot_ah_price(item_id: str, rarity: str,
     # Titles
     plt.subplots_adjust(top=0.75)
     plt.figtext(0.05, 0.9, f'{item_id} ({rarity})',
-                fontweight='bold', fontsize=12, color='slategray')
+                fontweight='bold', fontsize=12)
     begin_price, end_price = ys[0], ys[-1]
     plt.figtext(0.05, 0.85, f'{format_number(end_price)}',
                 fontweight='bold', fontsize=12)
     color = 'forestgreen' if end_price >= begin_price else 'darkred'
     abs_change, pct_change = format_change(begin_price, end_price)
-    plt.figtext(0.05, 0.8, f'{abs_change} {pct_change}',
+    plt.figtext(0.05, 0.8, f'{abs_change} ({pct_change})',
                 fontweight='bold', fontsize=10, color=color)
 
     # Price styling
@@ -186,7 +205,7 @@ def plot_ah_price(item_id: str, rarity: str,
     ax.xaxis.set_major_formatter(formatter)
 
     # Plot the results and save
-    plot_with_gradient(xs, ys)
+    plot_with_gradient(xs, ys, color)
     here = Path(__file__).parent
     plt.savefig(here / 'plot.png')
 
