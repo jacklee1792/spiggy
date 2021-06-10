@@ -3,7 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from discord import Embed, File, Message
+from discord import Embed, File, Forbidden, Message, NotFound
 from discord.ext.commands import Bot, Cog
 from discord_slash import SlashCommandOptionType, SlashContext
 from discord_slash.utils.manage_commands import create_choice, create_option
@@ -13,7 +13,7 @@ from backend.controllers.auctionhouse import AuctionHouse
 from backend.database import database
 from bot import embeds, utils
 from bot.utils import cog_slash
-
+from models.dashboard import Dashboard
 
 _here = Path(__file__).parent
 _cfg = ConfigParser()
@@ -28,12 +28,9 @@ class AuctionsCog(Cog):
 
     :ivar bot: The bot instance which holds this cog.
     :ivar ah: The AuctionHouse instance to use.
-    :ivar dashboards: List of tuples representing the dashboards that need to be
-    refreshed occasionally.
     """
     bot: Bot
     ah: AuctionHouse
-    dashboards: List[Tuple[Message, List, str, str]]
 
     def __init__(self, bot: Bot, ah: AuctionHouse) -> None:
         """
@@ -44,7 +41,6 @@ class AuctionsCog(Cog):
         """
         self.bot = bot
         self.ah = ah
-        self.dashboards = []
 
     @cog_slash(
         name='plot',
@@ -127,20 +123,40 @@ class AuctionsCog(Cog):
     async def dashboard_create(self, ctx: SlashContext, raw: str,
                                title: str = 'No title set',
                                description: str = 'No description set') -> None:
-        # This is why we need the owner check
-        items = eval(raw)
-        embed = embeds.dashboard_embed(items=items, title=title,
-                                       description=description)
-        await ctx.send(embed=embed)
-        self.dashboards.append((ctx.message, items, title, description))
+        await ctx.send('Your dashboard will be created on a separate message, '
+                       'you can safely dismiss this.',
+                       hidden=True)
 
-    async def refresh_dashboards(self, _) -> None:
+        items = []
+        # This is why we need the owner check
+        for token in eval(raw):
+            if isinstance(token, tuple):
+                items.append(token)
+            else:
+                item_id, _ = database.guess_identifiers(fuzzy_base_name=token)
+                rarity = database.guess_rarity(item_id=item_id)
+                items.append((item_id, rarity))
+
+        # Make a blank message to hold the dashboard
+        message = await ctx.channel.send('** **')
+
+        dashboard = Dashboard(items=items,
+                              message_id=message.id, channel_id=ctx.channel_id,
+                              title=title, description=description)
+        await message.edit(embed=dashboard.get_embed())
+        database.save_dashboard(dashboard)
+
+    async def refresh_dashboards(self, *_) -> None:
         """
-        Refresh all of the dashboards.
+        Refresh each dashboard in the database, or delete it if it no longer
+        exists.
 
         :return: None.
         """
-        for message, items, title, description in self.dashboards:
-            embed = embeds.dashboard_embed(items=items, title=title,
-                                           description=description)
-            await message.edit(embed=embed)
+        for dashboard in database.get_dashboards():
+            try:
+                channel = self.bot.get_channel(dashboard.channel_id)
+                message = await channel.fetch_message(dashboard.message_id)
+                await message.edit(embed=dashboard.get_embed())
+            except (AttributeError, NotFound, Forbidden):
+                database.delete_dashboard(message_id=dashboard.message_id)

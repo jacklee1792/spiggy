@@ -12,7 +12,7 @@ from fuzzywuzzy import process
 from backend import constants
 from backend.controllers.auctionhouse import AuctionHouse
 from models.auction import ActiveAuction
-
+from models.dashboard import Dashboard
 
 _here = Path(__file__).parent
 _cfg = ConfigParser()
@@ -21,7 +21,7 @@ _cfg.read(_here.parent.parent / 'config/spiggy.ini')
 
 _conn = sqlite3.connect(_here/'database.db',
                         detect_types=sqlite3.PARSE_DECLTYPES)
-
+_conn.execute('PRAGMA foreign_keys = ON')
 
 WRITE_TO_DATABASE = _cfg['Database'].getboolean('WriteToDatabase')
 
@@ -85,7 +85,8 @@ def get_lbin_history(item_id: str, rarity: str,
     :return: None.
     """
     sql = 'SELECT timestamp, price FROM lbin_history ' \
-          'WHERE item_id = ? AND rarity = ? AND timestamp >= ?'
+          'WHERE item_id = ? AND rarity = ? AND timestamp >= ? ' \
+          'ORDER BY timestamp'
     min_time = datetime.now() - span
     return _conn.execute(sql, (item_id, rarity, min_time)).fetchall()
 
@@ -132,7 +133,8 @@ def get_avg_sale_history(item_id: str, rarity: str,
     :return: None.
     """
     sql = 'SELECT timestamp, price FROM avg_sale_history ' \
-          'WHERE item_id = ? AND rarity = ? AND timestamp >= ?'
+          'WHERE item_id = ? AND rarity = ? AND timestamp >= ? ' \
+          'ORDER BY timestamp'
     min_time = datetime.now() - span
     return _conn.execute(sql, (item_id, rarity, min_time)).fetchall()
 
@@ -254,3 +256,71 @@ def get_base_name(item_id: str) -> Optional[str]:
     sql = 'SELECT base_name FROM item_info WHERE item_id = ?'
     ret = _conn.execute(sql, (item_id,)).fetchone()
     return ret[0] if ret is not None else None
+
+
+# Table which stores information about each dashboard
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS dashboard ('
+    '  message_id     INTEGER PRIMARY KEY,'
+    '  channel_id     INTEGER,'
+    '  title          TEXT,'
+    '  description    TEXT'
+    ')'
+)
+
+# Table which stores the dashboard items that need to be maintained
+_conn.execute(
+    'CREATE TABLE IF NOT EXISTS dashboard_item ('
+    '  message_id_fk  INTEGER,'
+    '  item_id        TEXT,'
+    '  rarity         TEXT,'
+    '  FOREIGN KEY (message_id_fk) REFERENCES dashboard (message_id)'
+    '  ON DELETE CASCADE'
+    ')'
+)
+
+
+@db_write
+def save_dashboard(dashboard: Dashboard) -> None:
+    """
+    Save the contents of a newly created dashboard into the database.
+
+    :param dashboard: The dashboard to be saved into the database.
+    :return: None.
+    """
+    dashboard_sql = 'INSERT INTO dashboard VALUES (?, ?, ?, ?)'
+    item_sql = 'INSERT INTO dashboard_item VALUES (?, ?, ?)'
+
+    _conn.execute(dashboard_sql, (dashboard.message_id, dashboard.channel_id,
+                                  dashboard.title, dashboard.description))
+    for item_id, rarity in dashboard.items:
+        _conn.execute(item_sql, (dashboard.message_id, item_id, rarity))
+
+
+def get_dashboards() -> List[Dashboard]:
+    # Map each message ID to a Dashboard instance
+    dashboards = {}
+    for row in _conn.execute('SELECT * FROM dashboard'):
+        message_id, channel_id, title, description = row
+        dashboards[message_id] = Dashboard(items=[], message_id=message_id,
+                                           channel_id=channel_id, title=title,
+                                           description=description)
+
+    # Add the items to each dashboard
+    for row in _conn.execute('SELECT * FROM dashboard_item'):
+        message_id, item_id, rarity = row
+        dashboards[message_id].items.append((item_id, rarity))
+
+    return list(dashboards.values())
+
+
+@db_write
+def delete_dashboard(message_id: int) -> None:
+    """
+    Delete the dashboard with the given message ID.
+
+    :param message_id: The message ID of the dashboard to be deleted.
+    :return: None.
+    """
+    sql = 'DELETE FROM dashboard WHERE message_id = ?'
+    _conn.execute(sql, (message_id,))
