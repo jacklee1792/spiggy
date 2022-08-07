@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Coroutine, List, Optional, Tuple, Union
 
-import discord
 import numpy as np
 from discord.ext.commands import Cog
 from discord_slash import SlashContext, cog_ext
@@ -15,8 +14,8 @@ from matplotlib import colors as mcolors, dates as mdates, pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.ticker import FuncFormatter
 
-from backend.controllers.auctionhouse import AuctionHouse
-from backend.database import database
+from backend.auctionhouse import AuctionHouse
+from backend import database
 from bot import embeds
 
 

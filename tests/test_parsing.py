@@ -1,6 +1,6 @@
 import unittest
 
-from backend.parsing import nbtparse
+from backend import nbtparse
 
 LION_PET_SAMPLE = 'H4sIAAAAAAAAAFVT3W7iRhQekt2uoRdRW2nVSxel1VYbEmz8g5H2IqXQGG' \
                   'GHEJIsVFU1tg8w4LEte5xgql70AfoIveYF+gQ8Sh+k6jHZ/knWaM433znf' \

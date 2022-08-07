@@ -9,10 +9,10 @@ import dotenv
 from discord.ext import commands
 from discord_slash import SlashCommand
 
-from backend.controllers.auctionhouse import AuctionHouse
-from backend.controllers.bazaar import Bazaar
-from backend.controllers.skyblockapi import SkyblockAPI
-from backend.database import database
+from backend.auctionhouse import AuctionHouse
+from backend.bazaar import Bazaar
+from backend.skyblockapi import SkyblockAPI
+from backend import database
 from bot.cogs.auctionscog import AuctionsCog
 from bot.cogs.metacog import MetaCog
 

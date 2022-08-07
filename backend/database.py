@@ -5,13 +5,12 @@ import statistics
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import List, Optional, Tuple, Callable
 
 from fuzzywuzzy import process
 
 from backend import constants
-from backend.controllers.auctionhouse import AuctionHouse
-from models.auction import ActiveAuction
+from backend.auctionhouse import AuctionHouse
 from models.dashboard import Dashboard
 
 _here = Path(__file__).parent

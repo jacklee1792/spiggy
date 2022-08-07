@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable, List, Optional, Union
 
-from backend.controllers.skyblockapi import SkyblockAPI
+from backend.skyblockapi import SkyblockAPI
 from models.bazaarproduct import BazaarProduct
 
 _here = Path(__file__).parent

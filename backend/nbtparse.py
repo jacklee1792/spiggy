@@ -11,11 +11,26 @@ from backend import constants
 
 _here = Path(__file__).parent
 
-with open(_here/'exceptions/enchants.json') as f:
-    ENCHANT_EXCEPTIONS = json.load(f)
+ENCHANT_EXCEPTIONS = {
+    "ultimate_bank": "bank",
+    "ultimate_chimera": "chimera",
+    "ultimate_combo": "combo",
+    "ultimate_last_stand": "last_stand",
+    "ultimate_legion": "legion",
+    "ultimate_no_pain_no_gain": "no_pain_no_gain",
+    "ultimate_one_for_all": "one_for_all",
+    "ultimate_rend": "rend",
+    "ultimate_soul_eater": "soul_eater",
+    "ultimate_swarm": "swarm",
+    "ultimate_wisdom": "wisdom"
+}
 
-with open(_here/'exceptions/reforges.json') as f:
-    REFORGE_EXCEPTIONS = json.load(f)
+REFORGE_EXCEPTIONS = {
+    "Not So Light Heavy Armor": "Heavy Armor",
+    "Even More Refined Mithril Pickaxe": "Refined Mithril Pickaxe",
+    "Even More Refined Titanium Pickaxe": "Refined Titanium Pickaxe"
+}
+
 
 
 def _pop_byte(bytes_f: BinaryIO) -> int:

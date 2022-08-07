@@ -8,7 +8,7 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import Awaitable, Callable, List, Literal, Optional, Tuple, Union
 
-from backend.controllers.skyblockapi import SkyblockAPI
+from backend.skyblockapi import SkyblockAPI
 from models.auction import ActiveAuction, EndedAuction
 
 _here = Path(__file__).parent

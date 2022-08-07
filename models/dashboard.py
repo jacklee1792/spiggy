@@ -1,11 +1,10 @@
 import statistics
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from discord import Embed
 
-from backend import constants
-from backend.database import database
+from backend import constants, database
 from bot import embeds, utils
 
 

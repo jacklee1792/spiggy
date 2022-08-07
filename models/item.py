@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional, Tuple
 
-from backend.parsing import nbtparse
+from backend import nbtparse
 
 
 class Item:
