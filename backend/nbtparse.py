@@ -32,7 +32,6 @@ REFORGE_EXCEPTIONS = {
 }
 
 
-
 def _pop_byte(bytes_f: BinaryIO) -> int:
     return int.from_bytes(bytes_f.read(1),
                           byteorder='big', signed=True)

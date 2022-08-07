@@ -4,7 +4,6 @@ from discord import TextChannel
 from discord.ext.commands import Bot, Cog
 from discord_slash import SlashContext
 
-from bot import utils
 from bot.utils import cog_slash
 
 

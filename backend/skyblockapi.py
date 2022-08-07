@@ -8,9 +8,8 @@ import math
 from collections import deque
 from configparser import ConfigParser
 from datetime import datetime, timedelta
-from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
 from aiohttp import ClientSession

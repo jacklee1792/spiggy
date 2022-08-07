@@ -79,7 +79,7 @@ class AuctionsCog(Cog):
         embed = Embed()
         embed.title = f'Historical Lowest BIN for {item}'
         try:
-            utils.plot_lbin_price(item_id, rarity, timedelta(days=span))
+            utils.plot_lbin_history(item_id, rarity, timedelta(days=span))
         except ValueError:
             embed.description = "I don't have enough information about that " \
                                 "item :frowning:"
